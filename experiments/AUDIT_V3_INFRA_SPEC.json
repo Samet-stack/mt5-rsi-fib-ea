@@ -1,0 +1,89 @@
+{
+  "schema": "rsifib-experiment-spec/v1",
+  "hypothesis_id": "AUDIT-V3-INFRA-001",
+  "hypothesis": "The V3 diagnostic infrastructure can reproduce the legacy reports deterministically, reject technically invalid evidence, and remain incapable of live trading.",
+  "phase": "audit",
+  "single_change": "Audit the frozen V3 infrastructure state; do not alter strategy parameters or select a trading variant.",
+  "planned_ranges": {
+    "strategy_parameters": "none",
+    "reports": [
+      "IS_2026-02-01_2026-05-01",
+      "OOS_2026-05-01_2026-07-01"
+    ]
+  },
+  "total_variants": 1,
+  "data": {
+    "broker": "MetaQuotes Ltd.",
+    "server": "MetaQuotes-Demo",
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
+    "role": "contaminated-development-only",
+    "currency": "USD",
+    "deposit": 3000.0,
+    "leverage": "1:100",
+    "terminal_build": 6090,
+    "windows": [
+      {
+        "start": "2026-02-01",
+        "end": "2026-05-01",
+        "role": "contaminated-development-IS"
+      },
+      {
+        "start": "2026-05-01",
+        "end": "2026-07-01",
+        "role": "opened-contaminated-OOS"
+      }
+    ]
+  },
+  "primary_metric": "deterministic_reproduction_and_fail_closed_verdict",
+  "acceptance_criteria": [
+    "All Python tests pass.",
+    "Both MQL5 experts compile with zero errors and zero warnings.",
+    "The OOS report is rejected or marked technically invalid.",
+    "No order is sent by the symbol probe or audit harness."
+  ],
+  "rejection_criteria": [
+    "Any live-account execution path remains available.",
+    "A report/probe mismatch is silently accepted.",
+    "Missing commissions are treated as verified zero costs.",
+    "The audit changes strategy parameters or optimizes a result."
+  ],
+  "source_sha256": "8987ba230674cfc983bf3877c4b9aece5a28a52ed4e79b2ea36550efa5038c7c",
+  "source_path": "MQL5/Experts/RSIFibRetracementEA.mq5",
+  "preset_sha256": "7097c21d1acfaff531a7b512e222cbb9e1fed70b7aa3d31d3bbcb18328577f39",
+  "preset_path": "presets/RSIFibEA_xau_stop039_be0_010.set",
+  "seed": 20260805,
+  "minimum_trades": 100,
+  "safety": {
+    "demo_only": true,
+    "live_trading": false,
+    "tester_probe_orders_sent": 0
+  },
+  "input_artifacts": [
+    {
+      "role": "mt5-report",
+      "path": "artifacts/validation-2026-08-04/RSIFibEA_IS_202602_202605_RSIFibEA_xau_stop039_be0_010.htm",
+      "sha256": "6fed745ee35482df250db34a676c611f97711218214bfa97c12f2c9652ffbe11",
+      "window": {
+        "start": "2026-02-01",
+        "end": "2026-05-01",
+        "role": "contaminated-development-IS"
+      }
+    },
+    {
+      "role": "mt5-report",
+      "path": "artifacts/validation-2026-08-04/RSIFibEA_OOS_202605_202607_xau_stop039_be0_010.htm",
+      "sha256": "0452516f5b1e887dca1486111aee504646c43ddffe7fc77f24f99338922f0eb5",
+      "window": {
+        "start": "2026-05-01",
+        "end": "2026-07-01",
+        "role": "opened-contaminated-OOS"
+      }
+    },
+    {
+      "role": "symbol-probe",
+      "path": "artifacts/symbol-probe-2026-08-05/XAUUSD_MetaQuotes-Demo.json",
+      "sha256": "49547647f882da13b8b5e7c07ef8e1bb555a433b16bcb70540c0847be96e0fbd"
+    }
+  ]
+}
