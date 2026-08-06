@@ -99,6 +99,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
             "CancelPendingOrder": "m_trade.OrderDelete",
             "CloseManagedPositionForContractCutoff": "m_safety_trade.PositionClose",
             "CheckAndApplyBreakEven": "m_safety_trade.PositionModify",
+            "CheckAndApplyFibTrailingStop": "m_safety_trade.PositionModify",
             "DeleteResidualOrder": "m_trade.OrderDelete",
             "ServiceUnprotectedPosition": "m_safety_trade.PositionClose",
         }
@@ -299,13 +300,15 @@ class TestMQL5SafetyContracts(unittest.TestCase):
             "InpUseMTFTrendFilter   = false",
             "InpUseVolatilityRegime = false",
             "InpUseBreakEven",
+            "InpUseFibTrailingStop",
         ):
             self.assertIn(declaration, SOURCE)
         self.assertRegex(SOURCE, r"InpUseBreakEven\s*=\s*false")
+        self.assertRegex(SOURCE, r"InpUseFibTrailingStop\s*=\s*false")
 
     def test_advanced_indicator_handles_are_created_once_and_released(self):
         init_body = function_body("OnInit")
-        deinit_body = function_body("OnDeinit")
+        deinit_body = function_body("ReleaseAllHandles") if "ReleaseAllHandles" in SOURCE else function_body("OnDeinit")
         creations = {
             "m_mtf_ema_handle": "iMA(",
             "m_mtf_rsi_handle": "iRSI(",

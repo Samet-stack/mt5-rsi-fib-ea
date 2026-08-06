@@ -124,6 +124,7 @@ input group "=== Position Management ==="
 input bool     InpUseBreakEven          = false;       // Enable structural break-even management
 input double   InpBETriggerFibRatio     = 1.00;        // Fib ratio that triggers break-even
 input int      InpBEOffsetTicks         = 1;           // Favorable offset from entry in trade ticks
+input bool     InpUseFibTrailingStop    = false;       // Enable multi-level Fibonacci trailing stop
 
 //--- Visualization & Logging
 input group "=== Display & Diagnostics ==="
@@ -242,6 +243,48 @@ double      m_daily_cache_pnl = 0.0;
 int         m_daily_cache_consecutive_losses = 0;
 
 //+------------------------------------------------------------------+
+//| Indicator Handle Management Helper                               |
+//+------------------------------------------------------------------+
+void ReleaseAllHandles()
+{
+   if (m_rsi_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_rsi_handle);
+      m_rsi_handle = INVALID_HANDLE;
+   }
+
+   if (m_atr_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_atr_handle);
+      m_atr_handle = INVALID_HANDLE;
+   }
+
+   if (m_mtf_ema_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_mtf_ema_handle);
+      m_mtf_ema_handle = INVALID_HANDLE;
+   }
+
+   if (m_mtf_rsi_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_mtf_rsi_handle);
+      m_mtf_rsi_handle = INVALID_HANDLE;
+   }
+
+   if (m_vol_fast_atr_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_vol_fast_atr_handle);
+      m_vol_fast_atr_handle = INVALID_HANDLE;
+   }
+
+   if (m_vol_slow_atr_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_vol_slow_atr_handle);
+      m_vol_slow_atr_handle = INVALID_HANDLE;
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -276,6 +319,7 @@ int OnInit()
    if (m_rsi_handle == INVALID_HANDLE)
    {
       PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create iRSI handle (Error: %d)", GetLastError());
+      ReleaseAllHandles();
       return INIT_FAILED;
    }
 
@@ -285,6 +329,7 @@ int OnInit()
       if (m_atr_handle == INVALID_HANDLE)
       {
          PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create iATR handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
          return INIT_FAILED;
       }
    }
@@ -295,6 +340,7 @@ int OnInit()
       if (m_mtf_ema_handle == INVALID_HANDLE)
       {
          PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create MTF iMA handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
          return INIT_FAILED;
       }
 
@@ -304,6 +350,7 @@ int OnInit()
          if (m_mtf_rsi_handle == INVALID_HANDLE)
          {
             PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create MTF iRSI handle (Error: %d)", GetLastError());
+            ReleaseAllHandles();
             return INIT_FAILED;
          }
       }
@@ -315,6 +362,7 @@ int OnInit()
       if (m_vol_fast_atr_handle == INVALID_HANDLE)
       {
          PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create Fast iATR handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
          return INIT_FAILED;
       }
 
@@ -322,6 +370,7 @@ int OnInit()
       if (m_vol_slow_atr_handle == INVALID_HANDLE)
       {
          PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create Slow iATR handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
          return INIT_FAILED;
       }
    }
@@ -364,42 +413,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   if (m_rsi_handle != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_rsi_handle);
-      m_rsi_handle = INVALID_HANDLE;
-   }
-
-   if (m_atr_handle != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_atr_handle);
-      m_atr_handle = INVALID_HANDLE;
-   }
-
-   if (m_mtf_ema_handle != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_mtf_ema_handle);
-      m_mtf_ema_handle = INVALID_HANDLE;
-   }
-
-   if (m_mtf_rsi_handle != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_mtf_rsi_handle);
-      m_mtf_rsi_handle = INVALID_HANDLE;
-   }
-
-   if (m_vol_fast_atr_handle != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_vol_fast_atr_handle);
-      m_vol_fast_atr_handle = INVALID_HANDLE;
-   }
-
-   if (m_vol_slow_atr_handle != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_vol_slow_atr_handle);
-      m_vol_slow_atr_handle = INVALID_HANDLE;
-   }
-
+   ReleaseAllHandles();
    RemoveChartObjects();
    Comment("");
 
@@ -821,7 +835,10 @@ void ProcessStatePendingOrder(bool is_new_bar)
 //--- State: IN_POSITION -> Position monitoring
 void ProcessStateInPosition(bool is_new_bar)
 {
-   CheckAndApplyBreakEven();
+   if (InpUseFibTrailingStop)
+      CheckAndApplyFibTrailingStop();
+   else if (InpUseBreakEven)
+      CheckAndApplyBreakEven();
 
    // Managed automatically by MT5 broker SL/TP orders attached to position.
    // Additional risk guards if required:
@@ -1228,6 +1245,17 @@ void ExecutePendingOrder(ENUM_ORDER_TYPE order_type, double vol)
    {
       m_setup.pending_ticket = m_trade.ResultOrder();
       m_setup.pending_order_time = TimeCurrent();
+
+      if (m_setup.pending_ticket == 0)
+      {
+         ulong deal_ticket = m_trade.ResultDeal();
+         if (deal_ticket > 0 && HistoryDealSelect(deal_ticket))
+         {
+            ulong order_id = (ulong)HistoryDealGetInteger(deal_ticket, DEAL_ORDER);
+            if (order_id > 0)
+               m_setup.pending_ticket = order_id;
+         }
+      }
 
       // A pending order can theoretically fill immediately between validation and send.
       // Re-sync when the server does not return an active order ticket.
@@ -1901,7 +1929,7 @@ bool UpdateDailyStats(int &daily_trades, double &daily_pnl, int &consec_losses)
          if (group_index < 0)
          {
             group_index = group_count;
-            if (ArrayResize(groups, group_count + 1) != group_count + 1)
+            if (ArrayResize(groups, group_count + 1, 64) != group_count + 1)
                return false;
             groups[group_index].identifier = position_id;
             groups[group_index].pnl = 0.0;
@@ -2663,6 +2691,151 @@ bool CheckAndApplyBreakEven()
    return false;
 }
 
+bool CheckAndApplyFibTrailingStop()
+{
+   if (!InpUseFibTrailingStop || m_setup.position_ticket == 0)
+      return true;
+
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked trailing-stop modification");
+      return false;
+   }
+
+   datetime now = TimeCurrent();
+   if (m_last_break_even_attempt != 0 && now - m_last_break_even_attempt < 1)
+      return true;
+
+   if (!PositionSelectByTicket(m_setup.position_ticket))
+   {
+      m_sync_required = true;
+      return false;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return false;
+
+   ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double current_sl = PositionGetDouble(POSITION_SL);
+   double current_tp = PositionGetDouble(POSITION_TP);
+   if (entry <= 0.0 || current_sl <= 0.0 || current_tp <= 0.0 ||
+       m_setup.range <= 0.0 || m_setup.dir != dir)
+      return false;
+
+   MqlTick tick;
+   if (!SymbolInfoTick(_Symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return false;
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (tick_size <= 0.0 || point <= 0.0)
+      return false;
+
+   // Multi-tier Fibonacci trailing stop levels:
+   // Tier 5: Fib 2.000 reached -> lock Fib 1.618
+   // Tier 4: Fib 1.618 reached -> lock Fib 1.000
+   // Tier 3: Fib 1.000 reached -> lock Fib 0.382
+   // Tier 2: Fib 0.618 reached -> lock Fib 0.000 (P0)
+   // Tier 1: Fib 0.382 reached -> lock Break-Even (entry + offset)
+   double desired_sl = 0.0;
+   string tier_desc = "";
+
+   if (dir == SIGNAL_BUY)
+   {
+      double p_bid = tick.bid;
+      if (p_bid >= m_setup.P0 + 2.000 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 1.618 * m_setup.range, -1);
+         tier_desc = "Fib 2.00 -> lock 1.618";
+      }
+      else if (p_bid >= m_setup.P0 + 1.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 1.000 * m_setup.range, -1);
+         tier_desc = "Fib 1.618 -> lock 1.000";
+      }
+      else if (p_bid >= m_setup.P0 + 1.000 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 0.382 * m_setup.range, -1);
+         tier_desc = "Fib 1.000 -> lock 0.382";
+      }
+      else if (p_bid >= m_setup.P0 + 0.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0, -1);
+         tier_desc = "Fib 0.618 -> lock 0.000";
+      }
+      else if (p_bid >= m_setup.P0 + 0.382 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(entry + InpBEOffsetTicks * tick_size, -1);
+         tier_desc = "Fib 0.382 -> lock BE";
+      }
+   }
+   else
+   {
+      double p_ask = tick.ask;
+      if (p_ask <= m_setup.P0 - 2.000 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 1.618 * m_setup.range, 1);
+         tier_desc = "Fib 2.00 -> lock 1.618";
+      }
+      else if (p_ask <= m_setup.P0 - 1.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 1.000 * m_setup.range, 1);
+         tier_desc = "Fib 1.618 -> lock 1.000";
+      }
+      else if (p_ask <= m_setup.P0 - 1.000 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 0.382 * m_setup.range, 1);
+         tier_desc = "Fib 1.000 -> lock 0.382";
+      }
+      else if (p_ask <= m_setup.P0 - 0.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0, 1);
+         tier_desc = "Fib 0.618 -> lock 0.000";
+      }
+      else if (p_ask <= m_setup.P0 - 0.382 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(entry - InpBEOffsetTicks * tick_size, 1);
+         tier_desc = "Fib 0.382 -> lock BE";
+      }
+   }
+
+   if (desired_sl <= 0.0)
+      return true;
+
+   double tolerance = 0.5 * tick_size;
+
+   // Idempotence and monotonicity: never make an existing stop less protective.
+   if ((dir == SIGNAL_BUY && current_sl >= desired_sl - tolerance) ||
+       (dir == SIGNAL_SELL && current_sl <= desired_sl + tolerance))
+      return true;
+
+   long stops_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long freeze_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double min_distance = (double)MathMax(stops_points, freeze_points) * point;
+   if ((dir == SIGNAL_BUY && tick.bid - desired_sl < min_distance) ||
+       (dir == SIGNAL_SELL && desired_sl - tick.ask < min_distance))
+      return true;
+
+   m_last_break_even_attempt = now;
+   bool modified = m_safety_trade.PositionModify(m_setup.position_ticket, desired_sl, current_tp);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (modified && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_NO_CHANGES))
+   {
+      m_sync_required = true;
+      m_last_status = "trailing-stop active";
+      PrintFormat("MANAGEMENT: [RSIFibEA] Position #%llu SL trailed to %.5f (%s).",
+                  m_setup.position_ticket, desired_sl, tier_desc);
+      return true;
+   }
+
+   m_last_status = "trailing-stop retry pending";
+   PrintFormat("WARNING: [RSIFibEA] Trailing stop modify failed for #%llu. Retcode: %u (%s).",
+               m_setup.position_ticket, retcode, m_safety_trade.ResultRetcodeDescription());
+   return false;
+}
+
 bool DeleteResidualOrder(ulong ticket)
 {
    if (!IsStrictDemoContext())
@@ -2973,8 +3146,8 @@ void SyncState()
       {
          if (known_pending == 0 || snapshot.limit_ticket != known_pending)
          {
-            EnterFault("Unknown residual order found beside active position");
-            return;
+            PrintFormat("WARNING: [RSIFibEA] Adopting residual order #%llu beside active position #%llu for safe deletion.",
+                        snapshot.limit_ticket, snapshot.position_ticket);
          }
          m_setup.pending_ticket = snapshot.limit_ticket;
          m_residual_order_ticket = snapshot.limit_ticket;

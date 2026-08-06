@@ -54,6 +54,7 @@ InpTPRiskMultiple=3.0
 InpUseBreakEven=false
 InpBETriggerFibRatio=1.00
 InpBEOffsetTicks=1
+InpUseFibTrailingStop=false
 InpDrawChartObjects=false
 InpVerboseLog=false
 InpShowDashboard=false

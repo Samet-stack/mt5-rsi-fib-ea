@@ -6,7 +6,7 @@
 
 Le trading d'instruments financiers comporte des risques élevés de perte en capital. Les performances passées ou les simulations de backtest ne garantissent aucunement les résultats futurs. Aucune promesse de rentabilité n'est formulée. Cette version doit rester en démo tant que sa compilation, ses backtests hors échantillon et son suivi forward n'ont pas été validés.
 
-**État au 6 août 2026 :** la compilation et les 111 tests techniques passent. La V3.1 ajoute une **géométrie adaptative** qui ajuste le stop-loss et le take-profit à la volatilité réelle du graphique (ATR), au lieu de s'appuyer uniquement sur des ratios Fibonacci fixes. Le preset `RSIFibEA_adaptive_xau_m15.set` active cette géométrie adaptative avec tous les filtres V2. Le gate de coûts broker reste un prérequis pour tout forward test. Voir [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
+**État au 6 août 2026 :** la compilation et les 113 tests techniques passent. La V3.2 ajoute le **Trailing Stop Fibonacci multi-niveaux** (verrouillage dynamique des profits de Fib 0.382 jusqu'à 2.000) et corrige 5 anomalies de robustesse (race condition sur ordre limite instantané, fuite de handles indicateurs, adoption de résiduels, division par zéro sur sizing). Le preset `RSIFibEA_adaptive_xau_m15.set` combine la géométrie adaptative ATR et le Trailing Stop Fib. Le gate de coûts broker reste un prérequis pour tout forward test. Voir [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
 
 ---
 
@@ -99,6 +99,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | | `InpTPRiskMultiple` | `3.0` | TP = distance SL × ce multiple. Avec `3.0` et un SL de 1.5 ATR, le TP sera à 4.5 ATR de l'entrée. |
 | **Gestion position** | `InpUseBreakEven` | `false` | Déplace une seule fois le SL sans jamais le détériorer. |
 | | `InpBETriggerFibRatio` / `InpBEOffsetTicks` | `1.00` / `1` | Déclencheur structurel et verrou favorable en ticks. |
+| | `InpUseFibTrailingStop` | `false` | Trailing Stop Fibonacci multi-niveaux : verrouille les gains progressivement (BE à Fib 0.382, P0 à Fib 0.618, Fib 0.382 à Fib 1.000, Fib 1.000 à Fib 1.618, Fib 1.618 à Fib 2.000). |
 | **Affichage** | `InpDrawChartObjects` | `true` | Dessine les 6 lignes horizontales de la structure sur le graphique. |
 | | `InpVerboseLog` | `true` | Journalisation détaillée dans le Journal d'Experts. |
 | | `InpShowDashboard` | `true` | Résumé runtime mis à jour au plus une fois par seconde. |

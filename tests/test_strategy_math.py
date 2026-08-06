@@ -249,6 +249,49 @@ def break_even_levels(p0, range_r, entry, trigger_ratio, offset_ticks,
     return trigger, aligned_sl
 
 
+def fib_trailing_stop_sl(p0, range_r, entry, current_price, offset_ticks,
+                         tick_size, is_buy):
+    """Calculates multi-level Fibonacci trailing stop SL."""
+    if (not all(is_finite_number(v) for v in (p0, range_r, entry, current_price, tick_size)) or
+            range_r <= 0.0 or tick_size <= 0.0 or offset_ticks < 0):
+        raise ValueError("Invalid trailing stop inputs")
+
+    if is_buy:
+        if current_price >= p0 + 2.000 * range_r:
+            raw_sl = p0 + 1.618 * range_r
+            return math.floor((raw_sl / tick_size) + 1e-12) * tick_size
+        elif current_price >= p0 + 1.618 * range_r:
+            raw_sl = p0 + 1.000 * range_r
+            return math.floor((raw_sl / tick_size) + 1e-12) * tick_size
+        elif current_price >= p0 + 1.000 * range_r:
+            raw_sl = p0 + 0.382 * range_r
+            return math.floor((raw_sl / tick_size) + 1e-12) * tick_size
+        elif current_price >= p0 + 0.618 * range_r:
+            raw_sl = p0
+            return math.floor((raw_sl / tick_size) + 1e-12) * tick_size
+        elif current_price >= p0 + 0.382 * range_r:
+            raw_sl = entry + offset_ticks * tick_size
+            return math.floor((raw_sl / tick_size) + 1e-12) * tick_size
+        return None
+    else:
+        if current_price <= p0 - 2.000 * range_r:
+            raw_sl = p0 - 1.618 * range_r
+            return math.ceil((raw_sl / tick_size) - 1e-12) * tick_size
+        elif current_price <= p0 - 1.618 * range_r:
+            raw_sl = p0 - 1.000 * range_r
+            return math.ceil((raw_sl / tick_size) - 1e-12) * tick_size
+        elif current_price <= p0 - 1.000 * range_r:
+            raw_sl = p0 - 0.382 * range_r
+            return math.ceil((raw_sl / tick_size) - 1e-12) * tick_size
+        elif current_price <= p0 - 0.618 * range_r:
+            raw_sl = p0
+            return math.ceil((raw_sl / tick_size) - 1e-12) * tick_size
+        elif current_price <= p0 - 0.382 * range_r:
+            raw_sl = entry - offset_ticks * tick_size
+            return math.ceil((raw_sl / tick_size) - 1e-12) * tick_size
+        return None
+
+
 def tester_score(trades, net_profit, profit_factor, sharpe, equity_dd_pct,
                  min_trades=40, target_trades=120, max_dd_pct=30.0, pf_cap=5.0,
                  sharpe_cap=5.0):
@@ -664,6 +707,76 @@ class TestOnTesterScore(unittest.TestCase):
 
     def test_drawdown_at_cap_has_zero_score(self):
         self.assertEqual(tester_score(40, 100.0, 2.0, 1.0, 30.0), 0.0)
+
+
+class TestFibonacciTrailingStop(unittest.TestCase):
+    def test_buy_trailing_stop_tiers(self):
+        p0, range_r = 2000.0, 10.0
+        entry = 1997.90  # P0 - 0.21 * 10
+        tick_size = 0.01
+
+        # Below tier 1: no trail
+        self.assertIsNone(fib_trailing_stop_sl(p0, range_r, entry, 2003.0, 1, tick_size, is_buy=True))
+
+        # Tier 1: at Fib 0.382 (2003.82) -> SL moves to BE (entry + 1 tick = 1997.91)
+        sl_t1 = fib_trailing_stop_sl(p0, range_r, entry, 2003.82, 1, tick_size, is_buy=True)
+        self.assertAlmostEqual(sl_t1, 1997.91)
+
+        # Tier 2: at Fib 0.618 (2006.18) -> SL moves to Fib 0.000 (2000.00)
+        sl_t2 = fib_trailing_stop_sl(p0, range_r, entry, 2006.18, 1, tick_size, is_buy=True)
+        self.assertAlmostEqual(sl_t2, 2000.00)
+
+        # Tier 3: at Fib 1.000 (2010.00) -> SL moves to Fib 0.382 (2003.82)
+        sl_t3 = fib_trailing_stop_sl(p0, range_r, entry, 2010.00, 1, tick_size, is_buy=True)
+        self.assertAlmostEqual(sl_t3, 2003.82)
+
+        # Tier 4: at Fib 1.618 (2016.18) -> SL moves to Fib 1.000 (2010.00)
+        sl_t4 = fib_trailing_stop_sl(p0, range_r, entry, 2016.18, 1, tick_size, is_buy=True)
+        self.assertAlmostEqual(sl_t4, 2010.00)
+
+        # Tier 5: at Fib 2.000 (2020.00) -> SL moves to Fib 1.618 (2016.18)
+        sl_t5 = fib_trailing_stop_sl(p0, range_r, entry, 2020.00, 1, tick_size, is_buy=True)
+        self.assertAlmostEqual(sl_t5, 2016.18)
+
+        # Monotonicity: each tier is strictly higher
+        self.assertLess(sl_t1, sl_t2)
+        self.assertLess(sl_t2, sl_t3)
+        self.assertLess(sl_t3, sl_t4)
+        self.assertLess(sl_t4, sl_t5)
+
+    def test_sell_trailing_stop_tiers(self):
+        p0, range_r = 2000.0, 10.0
+        entry = 2002.10  # P0 + 0.21 * 10
+        tick_size = 0.01
+
+        # Below tier 1: no trail
+        self.assertIsNone(fib_trailing_stop_sl(p0, range_r, entry, 1997.0, 1, tick_size, is_buy=False))
+
+        # Tier 1: at Fib 0.382 (1996.18) -> SL moves to BE (entry - 1 tick = 2002.09)
+        sl_t1 = fib_trailing_stop_sl(p0, range_r, entry, 1996.18, 1, tick_size, is_buy=False)
+        self.assertAlmostEqual(sl_t1, 2002.09)
+
+        # Tier 2: at Fib 0.618 (1993.82) -> SL moves to Fib 0.000 (2000.00)
+        sl_t2 = fib_trailing_stop_sl(p0, range_r, entry, 1993.82, 1, tick_size, is_buy=False)
+        self.assertAlmostEqual(sl_t2, 2000.00)
+
+        # Tier 3: at Fib 1.000 (1990.00) -> SL moves to Fib 0.382 (1996.18)
+        sl_t3 = fib_trailing_stop_sl(p0, range_r, entry, 1990.00, 1, tick_size, is_buy=False)
+        self.assertAlmostEqual(sl_t3, 1996.18)
+
+        # Tier 4: at Fib 1.618 (1983.82) -> SL moves to Fib 1.000 (1990.00)
+        sl_t4 = fib_trailing_stop_sl(p0, range_r, entry, 1983.82, 1, tick_size, is_buy=False)
+        self.assertAlmostEqual(sl_t4, 1990.00)
+
+        # Tier 5: at Fib 2.000 (1980.00) -> SL moves to Fib 1.618 (1983.82)
+        sl_t5 = fib_trailing_stop_sl(p0, range_r, entry, 1980.00, 1, tick_size, is_buy=False)
+        self.assertAlmostEqual(sl_t5, 1983.82)
+
+        # Monotonicity: each tier is strictly lower (more protective for short)
+        self.assertGreater(sl_t1, sl_t2)
+        self.assertGreater(sl_t2, sl_t3)
+        self.assertGreater(sl_t3, sl_t4)
+        self.assertGreater(sl_t4, sl_t5)
 
 
 if __name__ == "__main__":
