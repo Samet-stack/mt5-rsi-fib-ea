@@ -6,7 +6,7 @@
 
 Le trading d'instruments financiers comporte des risques élevés de perte en capital. Les performances passées ou les simulations de backtest ne garantissent aucunement les résultats futurs. Aucune promesse de rentabilité n'est formulée. Cette version doit rester en démo tant que sa compilation, ses backtests hors échantillon et son suivi forward n'ont pas été validés.
 
-**État au 5 août 2026 :** la compilation et les tests techniques passent, mais le Gate 0 est bloqué : les captures montrent un future Micro Gold tandis que seule une sonde du CFD `XAUUSD` de `MetaQuotes-Demo` est disponible ; la présence de MGC chez ce broker n'est pas établie et les coûts cibles ne sont pas vérifiés. Le candidat historique est négatif sur la fenêtre mai–juin et dépend de gains rares. **Ne pas activer Algo Trading.** Voir [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md) et [`docs/BASELINE_DIAGNOSTIC_V3.md`](docs/BASELINE_DIAGNOSTIC_V3.md).
+**État au 6 août 2026 :** la compilation et les 111 tests techniques passent. La V3.1 ajoute une **géométrie adaptative** qui ajuste le stop-loss et le take-profit à la volatilité réelle du graphique (ATR), au lieu de s'appuyer uniquement sur des ratios Fibonacci fixes. Le preset `RSIFibEA_adaptive_xau_m15.set` active cette géométrie adaptative avec tous les filtres V2. Le gate de coûts broker reste un prérequis pour tout forward test. Voir [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
 
 ---
 
@@ -32,6 +32,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - EA : [`MQL5/Experts/RSIFibRetracementEA.mq5`](MQL5/Experts/RSIFibRetracementEA.mq5)
    - Preset conservateur : [`presets/RSIFibRetracementEA_demo.set`](presets/RSIFibRetracementEA_demo.set)
    - Preset de recherche V2 : [`presets/RSIFibRetracementEA_v2_research.set`](presets/RSIFibRetracementEA_v2_research.set)
+   - Preset adaptatif (SL/TP dépendent du graphique) : [`presets/RSIFibEA_adaptive_xau_m15.set`](presets/RSIFibEA_adaptive_xau_m15.set)
 
 2. **Copie dans le répertoire MetaTrader 5** :
    - Dans MT5, ouvrir le menu **Fichier** > **Ouvrir le dossier des données** (`Open Data Folder`).
@@ -92,6 +93,10 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | | `InpStopRatio` | `-0.29` | Ratio du Stop-Loss d'invalidation (< EntryRatio). |
 | | `InpTargetRatio` | `2.56` | Ratio du Take-Profit principal. |
 | | `InpVisualTargetRatio` | `2.64` | Ratio de la seconde borne visuelle affichée. |
+| **Géométrie Adaptative** | `InpUseAdaptiveSL` | `false` | Si activé, le SL s'adapte à la volatilité du graphique : si la distance Fib SL est plus petite que `InpMinSLATRMultiple × ATR(14)`, le stop est élargi automatiquement pour rester hors du bruit. |
+| | `InpMinSLATRMultiple` | `1.5` | Plancher du SL en multiples d'ATR. Le SL ne sera jamais plus proche que cette distance × ATR de l'entrée. |
+| | `InpUseAdaptiveTP` | `false` | Si activé, le TP est calculé comme un multiple fixe de la distance SL réelle (ratio rendement/risque constant). |
+| | `InpTPRiskMultiple` | `3.0` | TP = distance SL × ce multiple. Avec `3.0` et un SL de 1.5 ATR, le TP sera à 4.5 ATR de l'entrée. |
 | **Gestion position** | `InpUseBreakEven` | `false` | Déplace une seule fois le SL sans jamais le détériorer. |
 | | `InpBETriggerFibRatio` / `InpBEOffsetTicks` | `1.00` / `1` | Déclencheur structurel et verrou favorable en ticks. |
 | **Affichage** | `InpDrawChartObjects` | `true` | Dessine les 6 lignes horizontales de la structure sur le graphique. |
@@ -135,6 +140,10 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 6. **Runtime défensif** :
    - `OnTradeTransaction` marque seulement l'état broker comme à resynchroniser. Le snapshot exhaustif est coalescé sur le tick suivant ou le watchdog.
    - Plusieurs positions/ordres gérés, un type inattendu ou une exposition étrangère mélangée placent l'EA en `STATE_FAULT` et interdisent toute nouvelle entrée.
+7. **Géométrie adaptative (V3.1)** :
+   - Avec `InpUseAdaptiveSL=true`, après le calcul Fibonacci initial, l'EA lit l'ATR(14) du graphique en cours. Si la distance entrée→stop est plus petite que `InpMinSLATRMultiple × ATR`, le stop est élargi pour sortir du bruit du spread et de la microstructure.
+   - Avec `InpUseAdaptiveTP=true`, le TP est recalculé à `InpTPRiskMultiple × distance_SL_réelle`, garantissant un ratio rendement/risque constant quel que soit l'instrument ou la volatilité du moment.
+   - Les deux options sont désactivées par défaut pour préserver la compatibilité avec les presets V1/V2. Le preset [`RSIFibEA_adaptive_xau_m15.set`](presets/RSIFibEA_adaptive_xau_m15.set) les active avec tous les filtres V2.
 
 ---
 
@@ -144,7 +153,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 2. Sélectionner `RSIFibRetracementEA.mq5` (ou `.ex5`).
 3. Choisir le symbole (ex. `EURUSD`) et le timeframe (ex. `M15`).
 4. Sélectionner impérativement **Chaque tick basé sur des ticks réels** (*Every tick based on real ticks*). Le mode OHLC n'est pas acceptable avec ce stop très serré.
-5. Dans l'onglet **Inputs**, charger le preset `presets/RSIFibRetracementEA_demo.set`.
+5. Dans l'onglet **Inputs**, charger le preset `presets/RSIFibRetracementEA_demo.set` (ratios Fib fixes) ou `presets/RSIFibEA_adaptive_xau_m15.set` (SL/TP adaptés au graphique via ATR, tous filtres V2 actifs).
 6. Documenter le modèle de coûts du broker cible puis seulement passer `InpCostModelVerified=true`. Un montant nul n'est admis que si le broker confirme réellement l'absence de commission/frais ; les presets livrés restent volontairement bloqués avec le flag à `false`.
 7. Réaliser des tests hors échantillon (*Out of Sample*), puis un walk-forward et une simulation avec coûts dégradés avant tout déploiement en démo. Le protocole détaillé se trouve dans [`docs/BACKTEST_PROTOCOL.md`](docs/BACKTEST_PROTOCOL.md).
 
