@@ -112,6 +112,13 @@ input double   InpStopRatio             = -0.29;       // Invalidation Stop Rati
 input double   InpTargetRatio           = 2.56;        // Take Profit Ratio (>= 1.0)
 input double   InpVisualTargetRatio     = 2.64;        // Second Visual Target Line Ratio
 
+//--- Adaptive Geometry (chart-dependent SL/TP)
+input group "=== Adaptive Geometry (ATR-based) ==="
+input bool     InpUseAdaptiveSL         = false;       // Adapt SL floor to chart volatility (ATR)
+input double   InpMinSLATRMultiple      = 1.5;         // Minimum SL distance in ATR multiples
+input bool     InpUseAdaptiveTP         = false;       // Adapt TP to fixed R:R from actual SL distance
+input double   InpTPRiskMultiple        = 3.0;         // TP distance = SL distance x this R:R multiple
+
 //--- Position Management
 input group "=== Position Management ==="
 input bool     InpUseBreakEven          = false;       // Enable structural break-even management
@@ -272,7 +279,7 @@ int OnInit()
       return INIT_FAILED;
    }
 
-   if (InpMinRangeATR > 0.0 || InpMaxRangeATR > 0.0)
+   if (InpMinRangeATR > 0.0 || InpMaxRangeATR > 0.0 || InpUseAdaptiveSL || InpUseAdaptiveTP)
    {
       m_atr_handle = iATR(_Symbol, m_timeframe, InpATR_Period);
       if (m_atr_handle == INVALID_HANDLE)
@@ -654,6 +661,15 @@ void ProcessStateWaitingForAnchor()
       return;
    }
 
+   // Adapt SL/TP to the chart's actual volatility if enabled
+   if (!AdaptSLTPToVolatility())
+   {
+      if (InpVerboseLog)
+         Print("WARNING: [RSIFibEA] Adaptive SL/TP adjustment failed or geometry invalid. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
    // Pre-placement Invalidation Check
    if (IsSetupInvalidatedByPrice())
    {
@@ -920,6 +936,108 @@ bool ComputeFibPrices()
    return (m_setup.visual_target_price <= m_setup.target_price &&
            m_setup.target_price < m_setup.P1 && m_setup.P1 < m_setup.P0 &&
            m_setup.P0 < m_setup.entry_price && m_setup.entry_price < m_setup.stop_price);
+}
+
+//+------------------------------------------------------------------+
+//| ADAPTIVE GEOMETRY — SL/TP depend on chart volatility (ATR)       |
+//+------------------------------------------------------------------+
+bool AdaptSLTPToVolatility()
+{
+   if (!InpUseAdaptiveSL && !InpUseAdaptiveTP)
+      return true;
+
+   // ATR handle is required for adaptive geometry
+   if (m_atr_handle == INVALID_HANDLE)
+   {
+      Print("ERROR: [RSIFibEA] Adaptive geometry requires ATR handle but it is invalid.");
+      return false;
+   }
+
+   double atr_buf[1];
+   if (CopyBuffer(m_atr_handle, 0, 1, 1, atr_buf) != 1)
+   {
+      Print("WARNING: [RSIFibEA] Cannot read ATR for adaptive geometry.");
+      return false;
+   }
+
+   double atr = atr_buf[0];
+   if (atr == EMPTY_VALUE || !MathIsValidNumber(atr) || atr <= 0.0)
+   {
+      Print("WARNING: [RSIFibEA] ATR value is invalid for adaptive geometry.");
+      return false;
+   }
+
+   double current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+
+   // --- Adaptive SL: widen stop if it is closer than MinSLATRMultiple × ATR ---
+   if (InpUseAdaptiveSL)
+   {
+      double min_sl_distance = InpMinSLATRMultiple * atr;
+
+      if (current_sl_distance < min_sl_distance)
+      {
+         if (m_setup.dir == SIGNAL_BUY)
+         {
+            double new_stop = m_setup.entry_price - min_sl_distance;
+            m_setup.stop_price = NormalizePriceDirectional(new_stop, -1);
+         }
+         else if (m_setup.dir == SIGNAL_SELL)
+         {
+            double new_stop = m_setup.entry_price + min_sl_distance;
+            m_setup.stop_price = NormalizePriceDirectional(new_stop, 1);
+         }
+
+         current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+
+         if (InpVerboseLog)
+            PrintFormat("ADAPT: [RSIFibEA] SL widened to %.5f (ATR=%.5f, floor=%.2f x ATR=%.5f, actual SL dist=%.5f)",
+                        m_setup.stop_price, atr, InpMinSLATRMultiple, min_sl_distance, current_sl_distance);
+      }
+      else
+      {
+         if (InpVerboseLog)
+            PrintFormat("ADAPT: [RSIFibEA] SL distance %.5f already >= ATR floor %.5f. No widening needed.",
+                        current_sl_distance, min_sl_distance);
+      }
+   }
+
+   // --- Adaptive TP: set TP at a fixed R:R multiple of the actual SL distance ---
+   if (InpUseAdaptiveTP)
+   {
+      double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      if (tick_size <= 0.0)
+         return false;
+
+      double new_tp_distance = current_sl_distance * InpTPRiskMultiple;
+
+      if (m_setup.dir == SIGNAL_BUY)
+      {
+         m_setup.target_price        = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance, -1);
+         m_setup.visual_target_price  = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance + tick_size, 0);
+      }
+      else if (m_setup.dir == SIGNAL_SELL)
+      {
+         m_setup.target_price        = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance, 1);
+         m_setup.visual_target_price  = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance - tick_size, 0);
+      }
+
+      if (InpVerboseLog)
+         PrintFormat("ADAPT: [RSIFibEA] TP adjusted to %.5f (SL dist=%.5f x %.1fR = TP dist=%.5f)",
+                     m_setup.target_price, current_sl_distance, InpTPRiskMultiple, new_tp_distance);
+   }
+
+   // --- Final validation of adapted geometry ---
+   if (!MathIsValidNumber(m_setup.stop_price) || !MathIsValidNumber(m_setup.target_price) ||
+       !MathIsValidNumber(m_setup.visual_target_price) ||
+       m_setup.stop_price <= 0.0 || m_setup.target_price <= 0.0 || m_setup.visual_target_price <= 0.0)
+      return false;
+
+   if (m_setup.dir == SIGNAL_BUY)
+      return (m_setup.stop_price < m_setup.entry_price && m_setup.entry_price < m_setup.target_price &&
+              m_setup.target_price <= m_setup.visual_target_price);
+
+   return (m_setup.visual_target_price <= m_setup.target_price &&
+           m_setup.target_price < m_setup.entry_price && m_setup.entry_price < m_setup.stop_price);
 }
 
 bool IsSetupInvalidatedByPrice()
@@ -1464,6 +1582,16 @@ bool ValidateInputs()
        InpBETriggerFibRatio > InpTargetRatio || InpBEOffsetTicks < 0)
    {
       Print("VALIDATION ERROR: Break-even trigger/offset values are invalid.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpMinSLATRMultiple) || InpMinSLATRMultiple <= 0.0 || InpMinSLATRMultiple > 100.0)
+   {
+      Print("VALIDATION ERROR: InpMinSLATRMultiple must be a positive finite number (<= 100).");
+      return false;
+   }
+   if (!MathIsValidNumber(InpTPRiskMultiple) || InpTPRiskMultiple <= 0.0 || InpTPRiskMultiple > 100.0)
+   {
+      Print("VALIDATION ERROR: InpTPRiskMultiple must be a positive finite number (<= 100).");
       return false;
    }
    if (InpTesterMinTrades < 1 || InpTesterTargetTrades < InpTesterMinTrades ||
