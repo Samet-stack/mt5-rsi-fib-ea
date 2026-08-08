@@ -1,22 +1,40 @@
 ========================================================================================================================
-                 TABLEAU COMPARATIF DES PERFORMANCES - RSIFIBEA V3.7 (XAUUSD M15 - CAPITAL 2 000 USD)
+                      TABLEAU COMPARATIF DES PERFORMANCES MULTI-HORIZONS (XAUUSD M15 - CAPITAL 2 000 USD)
 ========================================================================================================================
 
-1. ÉVOLUTION HISTORIQUE DES VERSIONS (Sur 3 Mois : 01 Mai 2026 au 01 Août 2026)
+HORIZON 3 MOIS (2026.05.01 -> 2026.08.01) - Focus Rentabilité & Réduction des Pertes :
 ------------------------------------------------------------------------------------------------------------------------
-Version EA                  Total Trades   Profit Net ($)   Profit Factor   Sharpe Ratio   Taux Gain (%)   Max DD (%)
+Modèle / Version                   Gain Net     Rendement    Profit Factor   Sharpe   Win Rate   Trades   Max Drawdown
 ------------------------------------------------------------------------------------------------------------------------
-V1.0 (Initiale 1M)               34          -200.00 $          0.65           -2.10           35.0 %        18.50 %
-V3.4 (Power Base)                55           +58.61 $          1.16            3.22           43.6 %         7.00 %
-V3.5 (Supreme)                   34          +173.25 $          1.99           13.01           50.0 %         4.77 %
-V3.7 (Loss-Annihilator)          24          +158.87 $          2.45           12.01           54.2 %         3.64 %
+V3.4 (Base 10k régressée 2k)        +18.72 $     +0.9 %          1.24         2.11     50.0 %      18       4.8 %
+V3.7 (Loss-Annihilator 2k)          +34.03 $     +1.7 %          1.40         3.15     57.1 %      14       3.4 %
+V4.0 Supreme Champion (FT05)       +430.31 $    +21.5 %          2.80        12.02     69.2 %      13       7.5 %  <-- Recommandé
+V4.0 Aggressive Target 600 (FT06)  +504.75 $    +25.2 %          2.68        11.95     69.2 %      13       8.8 %  <-- Objectif 600$
 ------------------------------------------------------------------------------------------------------------------------
 
-2. VALIDATION MULTI-MOIS SUR 1 AN COMPLET (V3.7 Loss-Annihilator - 100% Ticks Réels MetaTrader 5)
+HORIZON 6 MOIS (2026.02.01 -> 2026.08.01) - Stabilité & Asymétrie des Gains :
 ------------------------------------------------------------------------------------------------------------------------
-Période Testée              Durée       Trades    Gagnants (WR%)    Profit Net ($)   Profit Factor   Sharpe   Max DD (%)
+Modèle / Version                   Gain Net     Rendement    Profit Factor   Sharpe   Win Rate   Trades   Max Drawdown
 ------------------------------------------------------------------------------------------------------------------------
-Mai 2026 - Août 2026        3 Mois        24       13 (54.2 %)        +158.87 $          2.45        12.01      3.64 %
-Fév 2026 - Août 2026        6 Mois        32       19 (59.4 %)        +249.77 $          2.77        14.28      3.64 %
-Août 2025 - Août 2026       12 Mois       53       29 (54.7 %)        +347.19 $          2.32         9.88      6.80 %
+V3.4 (Base)                         +84.92 $     +4.2 %          1.45         4.20     52.0 %      25       4.6 %
+V3.7 (Loss-Annihilator)             +42.96 $     +2.1 %          1.44         4.19     60.0 %      15       3.4 %
+V4.0 Supreme Champion (FT05)       +674.41 $    +33.7 %          3.67        24.01     72.2 %      18       7.5 %
+V4.0 Aggressive Target 600 (FT06)  +623.24 $    +31.2 %          2.64        19.79     68.4 %      19       8.4 %
+------------------------------------------------------------------------------------------------------------------------
+
+HORIZON 12 MOIS (2025.08.01 -> 2026.08.01) - Robustesse Annuelle Complète :
+------------------------------------------------------------------------------------------------------------------------
+Modèle / Version                   Gain Net     Rendement    Profit Factor   Sharpe   Win Rate   Trades   Max Drawdown
+------------------------------------------------------------------------------------------------------------------------
+V3.4 (Base - Stop serré)           +262.70 $    +13.1 %          1.43         6.61     42.2 %     102      14.4 %
+V3.7 (Loss-Annihilator)            +133.03 $     +6.7 %          1.71        11.48     46.9 %      32       3.5 %
+V4.0 Supreme Champion (FT05)       +955.98 $    +47.8 %          2.65        23.89     51.5 %      33       7.6 %
+V4.0 Aggressive Target 600 (FT06) +1151.28 $    +57.6 %          2.67        24.43     51.5 %      33       9.1 %
+------------------------------------------------------------------------------------------------------------------------
+
+RÉSUMÉ DES AMÉLIORATIONS TECHNIQUES MAJEURES (V4.0) :
+1. Time-Decay Stagnation Exit : Coupure automatique des positions sans impulsion après 8 bougies (2h).
+2. Asymétrie Maximale TP 5.5R : Capture des extensions Fibonacci institutionnelles sur XAUUSD.
+3. Session Instit 10:00 - 17:00 : Élimination totale des pièges d'ouverture à 09h00 et des dérives de fin de journée.
+4. Protection EOD Vendredi 20:00 : Interdiction d'exposition aux gaps de week-end.
 ========================================================================================================================

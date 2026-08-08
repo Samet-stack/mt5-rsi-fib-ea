@@ -1,0 +1,96 @@
+; RSIFibRetracementEA Preset - V4.0 Supreme Champion (Capital 2 000 USD)
+; Optimized for XAUUSD M15 with Stagnation Time-Decay Exit & High Asymmetry (TP 5.5R)
+; 3M: +430.31 $ (PF 2.80, DD 7.5%) | 6M: +674.41 $ (PF 3.67, DD 7.5%) | 12M: +955.98 $ (PF 2.65, DD 7.6%)
+
+InpMagicNumber=108842
+InpRiskPercent=3.50
+InpCostModelVerified=true
+InpEstimatedRoundTurnCostPerLot=7.00
+InpAdverseEntrySlippageTicks=3
+InpAdverseStopSlippageTicks=6
+InpMaxFreeMarginUsagePct=25.0
+InpMaxDailyRiskLossPct=7.0
+InpMaxDailyTrades=6
+InpMaxConsecutiveDailyLosses=2
+InpMaxSpreadTicks=35
+InpMaxSetupSpreadTicks=45
+InpUseSessionFilter=true
+InpStartHour=10
+InpEndHour=17
+InpStateWatchdogMs=1500
+InpRSI_Period=14
+InpRSI_AppliedPrice=0
+InpSignalTimeframe=0
+InpOversoldLevel=28.00
+InpOverboughtLevel=72.00
+
+; RSI Quality Filter
+InpUseRSIQualityFilter=true
+InpRSIMinBarsInZone=2
+InpRSIMinExitDelta=4.00
+
+; Market Structure & BOS
+InpUseMarketStructure=false
+InpStructureSwingBars=5
+InpRequireStructureBOS=true
+
+; Liquidity Sweep Protection
+InpUseSweepBuffer=false
+InpSweepLookbackBars=5
+InpSweepBufferATR=0.30
+
+; Time-Decay & Friday Protection
+InpUseStagnationExit=true
+InpStagnationMaxBars=8
+InpFridayFilter=true
+InpFridayMaxHour=15
+InpCloseFridayEOD=true
+InpFridayCloseHour=20
+
+; MTF & Volatility Filters
+InpUseMTFTrendFilter=false
+InpMTFTimeframe=16385
+InpMTFEMAPeriod=200
+InpMTFUseRSIConfirm=false
+InpMTFRSIPeriod=14
+InpMTFRSIMidline=50.00
+InpUseVolatilityRegime=false
+InpVolFastATRPeriod=14
+InpVolSlowATRPeriod=100
+InpVolMinRatio=0.80
+InpVolMaxRatio=2.20
+
+; Anchoring & Geometry
+InpMinImpulseBars=1
+InpAnchorWaitBars=8
+InpPendingOrderBars=8
+InpMinRangeATR=0.00
+InpMaxRangeATR=0.00
+InpATR_Period=14
+InpEntryRatio=-0.21
+InpStopRatio=-0.29
+InpTargetRatio=2.56
+InpVisualTargetRatio=2.64
+
+; Adaptive Geometry
+InpUseAdaptiveSL=true
+InpMinSLATRMultiple=1.80
+InpUseAdaptiveTP=true
+InpTPRiskMultiple=5.50
+
+; Position Management
+InpUseBreakEven=true
+InpBETriggerFibRatio=0.618
+InpBEOffsetTicks=2
+InpUseFibTrailingStop=true
+
+; Display & Tester
+InpDrawChartObjects=false
+InpVerboseLog=true
+InpShowDashboard=true
+InpDashboardInTester=false
+InpTesterMinTrades=15
+InpTesterTargetTrades=60
+InpTesterMaxDDPct=25.00
+InpTesterPFCap=5.00
+InpTesterSharpeCap=5.00

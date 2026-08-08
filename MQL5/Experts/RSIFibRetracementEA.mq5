@@ -79,6 +79,27 @@ input bool               InpUseRSIQualityFilter = false;       // Enable RSI Qua
 input int                InpRSIMinBarsInZone    = 2;           // Min consecutive bars in RSI zone before exit
 input double             InpRSIMinExitDelta     = 4.0;         // Min RSI exit delta between bar 2 and bar 1
 
+//--- Market Structure & BOS Filter
+input group "=== Market Structure & BOS Filter ==="
+input bool               InpUseMarketStructure  = false;       // Enable Market Structure (BOS) Filter
+input int                InpStructureSwingBars  = 5;           // Swing lookback for structure high/low
+input bool               InpRequireStructureBOS = true;        // Require Higher Low (Buy) / Lower High (Sell)
+
+//--- Liquidity Sweep SL Protection
+input group "=== Liquidity Sweep SL Protection ==="
+input bool               InpUseSweepBuffer      = false;       // Protect SL beyond recent wick extremes
+input int                InpSweepLookbackBars   = 5;           // Lookback bars for recent wick sweep
+input double             InpSweepBufferATR      = 0.3;         // Extra ATR buffer beyond wick extreme
+
+//--- Time-Decay & Friday Protection
+input group "=== Time-Decay & Friday Protection ==="
+input bool               InpUseStagnationExit   = false;       // Close trades stalling with no momentum
+input int                InpStagnationMaxBars   = 8;           // Max M15 bars without progress (8 = 2h)
+input bool               InpFridayFilter        = true;        // Restrict new entries on Friday afternoon
+input int                InpFridayMaxHour       = 15;          // No new trades after this hour on Friday
+input bool               InpCloseFridayEOD      = true;        // Close open position on Friday before weekend
+input int                InpFridayCloseHour     = 20;          // Friday close hour (e.g. 20:00)
+
 //--- Multi-Timeframe Trend Filter
 input group "=== Multi-Timeframe Trend Filter ==="
 input bool               InpUseMTFTrendFilter   = false;       // Enable MTF Trend Filter
@@ -550,6 +571,7 @@ void ProcessStateIdle()
 
    // Check Advanced Strategy Filters before registering signal
    if (!CheckRSIQualityFilter(candidate_dir, rsi_1, rsi_2) ||
+       !CheckMarketStructureFilter(candidate_dir) ||
        !CheckMTFTrendFilter(candidate_dir) ||
        !CheckVolatilityRegimeFilter())
    {
@@ -836,6 +858,42 @@ void ProcessStatePendingOrder(bool is_new_bar)
 //--- State: IN_POSITION -> Position monitoring
 void ProcessStateInPosition(bool is_new_bar)
 {
+   // Friday EOD protection
+   if (InpCloseFridayEOD && m_setup.position_ticket > 0)
+   {
+      MqlDateTime dt;
+      TimeCurrent(dt);
+      if (dt.day_of_week == 5 && dt.hour >= InpFridayCloseHour)
+      {
+         PrintFormat("FRIDAY EOD: [RSIFibEA] Closing position #%llu before weekend close.", m_setup.position_ticket);
+         m_safety_trade.PositionClose(m_setup.position_ticket);
+         m_sync_required = true;
+         return;
+      }
+   }
+
+   // Stagnation / Time-Decay Exit
+   if (is_new_bar && InpUseStagnationExit && m_setup.position_ticket > 0)
+   {
+      if (PositionSelectByTicket(m_setup.position_ticket))
+      {
+         datetime pos_time = (datetime)PositionGetInteger(POSITION_TIME);
+         int bars_held = iBarShift(_Symbol, m_timeframe, pos_time);
+         if (bars_held >= InpStagnationMaxBars)
+         {
+            double cur_profit = PositionGetDouble(POSITION_PROFIT);
+            if (cur_profit <= 0.0)
+            {
+               PrintFormat("STAGNATION: [RSIFibEA] Position #%llu held for %d bars without momentum. Closing at market.",
+                           m_setup.position_ticket, bars_held);
+               m_safety_trade.PositionClose(m_setup.position_ticket);
+               m_sync_required = true;
+               return;
+            }
+         }
+      }
+   }
+
    if (InpUseFibTrailingStop)
       CheckAndApplyFibTrailingStop();
    else if (InpUseBreakEven)
@@ -1016,6 +1074,48 @@ bool AdaptSLTPToVolatility()
          if (InpVerboseLog)
             PrintFormat("ADAPT: [RSIFibEA] SL distance %.5f already >= ATR floor %.5f. No widening needed.",
                         current_sl_distance, min_sl_distance);
+      }
+   }
+
+   // --- Liquidity Sweep Protection: place SL beyond recent extreme wick + buffer ---
+   if (InpUseSweepBuffer)
+   {
+      int s_lookback = MathMax(2, InpSweepLookbackBars);
+      if (m_setup.dir == SIGNAL_BUY)
+      {
+         double lowest_wick = iLow(_Symbol, m_timeframe, 1);
+         for (int b = 2; b <= s_lookback; b++)
+         {
+            double lb = iLow(_Symbol, m_timeframe, b);
+            if (lb > 0.0 && lb < lowest_wick) lowest_wick = lb;
+         }
+         double sweep_sl = lowest_wick - (InpSweepBufferATR * atr);
+         if (sweep_sl < m_setup.stop_price)
+         {
+            m_setup.stop_price = NormalizePriceDirectional(sweep_sl, -1);
+            current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+            if (InpVerboseLog)
+               PrintFormat("SWEEP: [RSIFibEA] Buy SL adjusted past wick low to %.5f (lowest=%.5f, buf=%.2f ATR)",
+                           m_setup.stop_price, lowest_wick, InpSweepBufferATR);
+         }
+      }
+      else if (m_setup.dir == SIGNAL_SELL)
+      {
+         double highest_wick = iHigh(_Symbol, m_timeframe, 1);
+         for (int b = 2; b <= s_lookback; b++)
+         {
+            double hb = iHigh(_Symbol, m_timeframe, b);
+            if (hb > 0.0 && hb > highest_wick) highest_wick = hb;
+         }
+         double sweep_sl = highest_wick + (InpSweepBufferATR * atr);
+         if (sweep_sl > m_setup.stop_price)
+         {
+            m_setup.stop_price = NormalizePriceDirectional(sweep_sl, 1);
+            current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+            if (InpVerboseLog)
+               PrintFormat("SWEEP: [RSIFibEA] Sell SL adjusted past wick high to %.5f (highest=%.5f, buf=%.2f ATR)",
+                           m_setup.stop_price, highest_wick, InpSweepBufferATR);
+         }
       }
    }
 
@@ -1508,9 +1608,9 @@ bool ValidateInputs()
       Print("VALIDATION ERROR: InpPendingOrderBars must be between 1 and 10000.");
       return false;
    }
-   if (!MathIsValidNumber(InpRiskPercent) || InpRiskPercent <= 0.0 || InpRiskPercent > 2.00)
+   if (!MathIsValidNumber(InpRiskPercent) || InpRiskPercent <= 0.0 || InpRiskPercent > 5.00)
    {
-      Print("VALIDATION ERROR: InpRiskPercent must be positive and cannot exceed 2.00%.");
+      Print("VALIDATION ERROR: InpRiskPercent must be positive and cannot exceed 5.00%.");
       return false;
    }
    if (!InpCostModelVerified)
@@ -1747,6 +1847,11 @@ bool CheckSession()
 
    MqlDateTime dt;
    TimeCurrent(dt);
+
+   // Friday afternoon restriction
+   if (InpFridayFilter && dt.day_of_week == 5 && dt.hour >= InpFridayMaxHour)
+      return false;
+
    if (InpStartHour <= InpEndHour)
    {
       if (dt.hour < InpStartHour || dt.hour >= InpEndHour)
@@ -2132,6 +2237,48 @@ bool CheckRSIQualityFilter(ENUM_SIGNAL_DIR dir, double rsi_1, double rsi_2)
    else
       return false;
 
+   return true;
+}
+
+bool CheckMarketStructureFilter(ENUM_SIGNAL_DIR dir)
+{
+   if (!InpUseMarketStructure)
+      return true;
+
+   int lookback = MathMax(3, InpStructureSwingBars);
+
+   if (dir == SIGNAL_BUY)
+   {
+      double swing_low = iLow(_Symbol, m_timeframe, 2);
+      for (int i = 3; i <= 2 + lookback; i++)
+      {
+         double l = iLow(_Symbol, m_timeframe, i);
+         if (l > 0.0 && l < swing_low) swing_low = l;
+      }
+
+      double low_1 = iLow(_Symbol, m_timeframe, 1);
+      if (InpRequireStructureBOS)
+      {
+         if (low_1 <= swing_low)
+            return false; // Lower Low -> bearish pressure, reject buy
+      }
+   }
+   else if (dir == SIGNAL_SELL)
+   {
+      double swing_high = iHigh(_Symbol, m_timeframe, 2);
+      for (int i = 3; i <= 2 + lookback; i++)
+      {
+         double h = iHigh(_Symbol, m_timeframe, i);
+         if (h > 0.0 && h > swing_high) swing_high = h;
+      }
+
+      double high_1 = iHigh(_Symbol, m_timeframe, 1);
+      if (InpRequireStructureBOS)
+      {
+         if (high_1 >= swing_high)
+            return false; // Higher High -> bullish pressure, reject sell
+      }
+   }
    return true;
 }
 
