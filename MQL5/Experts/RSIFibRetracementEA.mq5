@@ -336,7 +336,8 @@ int OnInit()
 
    if (InpUseMTFTrendFilter)
    {
-      m_mtf_ema_handle = iMA(_Symbol, InpMTFTimeframe, InpMTFEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
+      ENUM_TIMEFRAMES eval_tf = (InpMTFTimeframe == PERIOD_CURRENT) ? m_timeframe : InpMTFTimeframe;
+      m_mtf_ema_handle = iMA(_Symbol, eval_tf, InpMTFEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
       if (m_mtf_ema_handle == INVALID_HANDLE)
       {
          PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create MTF iMA handle (Error: %d)", GetLastError());
@@ -346,7 +347,7 @@ int OnInit()
 
       if (InpMTFUseRSIConfirm)
       {
-         m_mtf_rsi_handle = iRSI(_Symbol, InpMTFTimeframe, InpMTFRSIPeriod, PRICE_CLOSE);
+         m_mtf_rsi_handle = iRSI(_Symbol, eval_tf, InpMTFRSIPeriod, PRICE_CLOSE);
          if (m_mtf_rsi_handle == INVALID_HANDLE)
          {
             PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create MTF iRSI handle (Error: %d)", GetLastError());
@@ -1573,10 +1574,10 @@ bool ValidateInputs()
    ENUM_TIMEFRAMES resolved_signal_tf = (InpSignalTimeframe == PERIOD_CURRENT)
                                          ? (ENUM_TIMEFRAMES)_Period
                                          : InpSignalTimeframe;
-   if (InpUseMTFTrendFilter &&
-       PeriodSeconds(InpMTFTimeframe) <= PeriodSeconds(resolved_signal_tf))
+   if (InpUseMTFTrendFilter && InpMTFTimeframe != PERIOD_CURRENT &&
+       PeriodSeconds(InpMTFTimeframe) < PeriodSeconds(resolved_signal_tf))
    {
-      Print("VALIDATION ERROR: InpMTFTimeframe must be strictly higher than the signal timeframe.");
+      Print("VALIDATION ERROR: InpMTFTimeframe must be equal to or higher than the signal timeframe.");
       return false;
    }
    if (InpMTFRSIPeriod < 2 || InpMTFRSIPeriod > 100000)
@@ -2142,7 +2143,8 @@ bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
    if (m_mtf_ema_handle == INVALID_HANDLE)
       return false;
 
-   double htf_close = iClose(_Symbol, InpMTFTimeframe, 1);
+   ENUM_TIMEFRAMES eval_tf = (InpMTFTimeframe == PERIOD_CURRENT) ? m_timeframe : InpMTFTimeframe;
+   double htf_close = iClose(_Symbol, eval_tf, 1);
    if (htf_close <= 0.0 || !MathIsValidNumber(htf_close))
       return false;
 
@@ -2755,20 +2757,15 @@ bool CheckAndApplyFibTrailingStop()
          desired_sl = NormalizePriceDirectional(m_setup.P0 + 1.000 * m_setup.range, -1);
          tier_desc = "Fib 1.618 -> lock 1.000";
       }
-      else if (p_bid >= m_setup.P0 + 1.000 * m_setup.range)
+      else if (p_bid >= m_setup.P0 + 1.272 * m_setup.range)
       {
-         desired_sl = NormalizePriceDirectional(m_setup.P0 + 0.382 * m_setup.range, -1);
-         tier_desc = "Fib 1.000 -> lock 0.382";
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 0.618 * m_setup.range, -1);
+         tier_desc = "Fib 1.272 -> lock 0.618";
       }
       else if (p_bid >= m_setup.P0 + 0.618 * m_setup.range)
       {
-         desired_sl = NormalizePriceDirectional(m_setup.P0, -1);
-         tier_desc = "Fib 0.618 -> lock 0.000";
-      }
-      else if (p_bid >= m_setup.P0 + 0.382 * m_setup.range)
-      {
          desired_sl = NormalizePriceDirectional(entry + InpBEOffsetTicks * tick_size, -1);
-         tier_desc = "Fib 0.382 -> lock BE";
+         tier_desc = "Fib 0.618 -> lock BE";
       }
    }
    else
@@ -2784,20 +2781,15 @@ bool CheckAndApplyFibTrailingStop()
          desired_sl = NormalizePriceDirectional(m_setup.P0 - 1.000 * m_setup.range, 1);
          tier_desc = "Fib 1.618 -> lock 1.000";
       }
-      else if (p_ask <= m_setup.P0 - 1.000 * m_setup.range)
+      else if (p_ask <= m_setup.P0 - 1.272 * m_setup.range)
       {
-         desired_sl = NormalizePriceDirectional(m_setup.P0 - 0.382 * m_setup.range, 1);
-         tier_desc = "Fib 1.000 -> lock 0.382";
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 0.618 * m_setup.range, 1);
+         tier_desc = "Fib 1.272 -> lock 0.618";
       }
       else if (p_ask <= m_setup.P0 - 0.618 * m_setup.range)
       {
-         desired_sl = NormalizePriceDirectional(m_setup.P0, 1);
-         tier_desc = "Fib 0.618 -> lock 0.000";
-      }
-      else if (p_ask <= m_setup.P0 - 0.382 * m_setup.range)
-      {
          desired_sl = NormalizePriceDirectional(entry - InpBEOffsetTicks * tick_size, 1);
-         tier_desc = "Fib 0.382 -> lock BE";
+         tier_desc = "Fib 0.618 -> lock BE";
       }
    }
 
