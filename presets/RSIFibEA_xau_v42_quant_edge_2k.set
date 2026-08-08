@@ -1,19 +1,10 @@
-; RSIFibRetracementEA Preset - V4.0 Aggressive Target 600 (Capital 2 000 USD)
-; Optimized for maximum 3M cash acceleration (+504.75 $ without compounding / > +600 $ with compounding)
-; 3M: +504.75 $ (PF 2.68, DD 8.8%) | 6M: +623.24 $ (PF 2.64, DD 8.4%) | 12M: +1 151.28 $ (PF 2.67, DD 9.1%)
-; RSI Quality Filter
-; Market Structure & BOS
-; Liquidity Sweep Protection
-; Time-Decay & Friday Protection
-; MTF & Volatility Filters
-; Anchoring & Geometry
-; Adaptive Geometry
-; Position Management
-; Display & Tester
+; RSIFibRetracementEA Preset - V4.2 Quant Edge (Capital 2 000 USD)
+; Full Integration: Double TP Scaling Out (2.5R / 5.5R), High-Impact News Guard, RSI Divergence & BOS
+; Target: ~600 $ in 3 Months on XAUUSD M15 (Max DD < 8%)
 
 InpDemoOnly=true
-InpMagicNumber=108843
-InpRiskPercent=4.00
+InpMagicNumber=108844
+InpRiskPercent=3.50
 InpMaxDailyLossPct=1.0
 InpMaxDailyTrades=6
 InpMaxConsecutiveLosses=2
@@ -38,19 +29,19 @@ InpOverboughtLevel=72.00
 InpUseRSIQualityFilter=true
 InpRSIMinBarsInZone=2
 InpRSIMinExitDelta=4.00
-InpUseRSIDivergence=false
+InpUseRSIDivergence=true
 InpRSIDivLookbackBars=15
 InpRSIDivMinPivotDiff=2.0
 InpRequireRSIDivergence=false
-InpUseNewsFilter=false
+InpUseNewsFilter=true
 InpNewsMinsBefore=30
 InpNewsMinsAfter=30
 InpNewsCurrency="USD"
 InpNewsMinImportance=CALENDAR_IMPORTANCE_HIGH
-InpUseMarketStructure=false
+InpUseMarketStructure=true
 InpStructureSwingBars=5
 InpRequireStructureBOS=true
-InpUseSweepBuffer=false
+InpUseSweepBuffer=true
 InpSweepLookbackBars=5
 InpSweepBufferATR=0.30
 InpUseStagnationExit=true
@@ -84,8 +75,8 @@ InpUseAdaptiveSL=true
 InpMinSLATRMultiple=1.80
 InpUseAdaptiveTP=true
 InpTPRiskMultiple=5.50
-InpUsePartialTP=false
-InpPartialTPRiskMultiple=2.5
+InpUsePartialTP=true
+InpPartialTPRiskMultiple=2.50
 InpPartialClosePercent=50.0
 InpPartialLockBE=true
 InpUseBreakEven=true
@@ -98,6 +89,6 @@ InpShowDashboard=true
 InpDashboardInTester=false
 InpTesterMinTrades=15
 InpTesterTargetTrades=60
-InpTesterMaxDDPct=25.00
-InpTesterPFCap=5.00
-InpTesterSharpeCap=5.00
+InpTesterMaxDDPct=8.00
+InpTesterPFCap=3.00
+InpTesterSharpeCap=3.00

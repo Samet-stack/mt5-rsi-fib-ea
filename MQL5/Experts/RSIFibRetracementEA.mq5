@@ -79,6 +79,21 @@ input bool               InpUseRSIQualityFilter = false;       // Enable RSI Qua
 input int                InpRSIMinBarsInZone    = 2;           // Min consecutive bars in RSI zone before exit
 input double             InpRSIMinExitDelta     = 4.0;         // Min RSI exit delta between bar 2 and bar 1
 
+//--- RSI Divergence Engine
+input group "=== RSI Divergence Engine ==="
+input bool               InpUseRSIDivergence    = false;       // Enable RSI Divergence Detection
+input int                InpRSIDivLookbackBars  = 15;          // Lookback bars for divergence pivots (5-50)
+input double             InpRSIDivMinPivotDiff  = 2.0;         // Min RSI delta between pivots
+input bool               InpRequireRSIDivergence= false;       // Strictly require Divergence to validate entry
+
+//--- Economic Calendar News Filter
+input group "=== Economic Calendar News Filter ==="
+input bool               InpUseNewsFilter       = false;       // Enable High-Impact Economic News Filter
+input int                InpNewsMinsBefore      = 30;          // Freeze entries N minutes before event
+input int                InpNewsMinsAfter       = 30;          // Freeze entries N minutes after event
+input string             InpNewsCurrency        = "USD";       // News Currencies to filter (comma-separated)
+input ENUM_CALENDAR_EVENT_IMPORTANCE InpNewsMinImportance = CALENDAR_IMPORTANCE_HIGH; // Min news importance
+
 //--- Market Structure & BOS Filter
 input group "=== Market Structure & BOS Filter ==="
 input bool               InpUseMarketStructure  = false;       // Enable Market Structure (BOS) Filter
@@ -140,6 +155,13 @@ input double   InpMinSLATRMultiple      = 1.5;         // Minimum SL distance in
 input bool     InpUseAdaptiveTP         = false;       // Adapt TP to fixed R:R from actual SL distance
 input double   InpTPRiskMultiple        = 3.0;         // TP distance = SL distance x this R:R multiple
 
+//--- Partial Take-Profit & Scaling Out
+input group "=== Partial Take-Profit & Scaling Out ==="
+input bool     InpUsePartialTP          = false;       // Enable Partial Take-Profit (2-Target Asymmetry)
+input double   InpPartialTPRiskMultiple = 2.5;         // TP1 Risk Multiple (R:R) for partial close
+input double   InpPartialClosePercent   = 50.0;        // Percentage of volume to close at TP1 (e.g. 50%)
+input bool     InpPartialLockBE         = true;        // Move Stop-Loss to Break-Even upon TP1 fill
+
 //--- Position Management
 input group "=== Position Management ==="
 input bool     InpUseBreakEven          = false;       // Enable structural break-even management
@@ -177,6 +199,8 @@ struct SetupStruct
    double          stop_price;
    double          target_price;
    double          visual_target_price;
+   double          partial_tp_price;
+   bool            partial_tp_closed;
    datetime        pending_order_time;
    ulong           pending_ticket;
    ulong           position_ticket;
@@ -193,6 +217,8 @@ struct SetupStruct
       stop_price          = 0.0;
       target_price        = 0.0;
       visual_target_price = 0.0;
+      partial_tp_price    = 0.0;
+      partial_tp_closed   = false;
       pending_order_time  = 0;
       pending_ticket      = 0;
       position_ticket     = 0;
@@ -571,9 +597,11 @@ void ProcessStateIdle()
 
    // Check Advanced Strategy Filters before registering signal
    if (!CheckRSIQualityFilter(candidate_dir, rsi_1, rsi_2) ||
+       !CheckRSIDivergenceFilter(candidate_dir) ||
        !CheckMarketStructureFilter(candidate_dir) ||
        !CheckMTFTrendFilter(candidate_dir) ||
-       !CheckVolatilityRegimeFilter())
+       !CheckVolatilityRegimeFilter() ||
+       !CheckEconomicCalendarFilter())
    {
       if (InpVerboseLog)
          Print("INFO: [RSIFibEA] RSI signal detected but rejected by advanced strategy filters.");
@@ -894,6 +922,55 @@ void ProcessStateInPosition(bool is_new_bar)
       }
    }
 
+   // Partial Take-Profit Execution
+   if (InpUsePartialTP && !m_setup.partial_tp_closed && m_setup.partial_tp_price > 0.0 && m_setup.position_ticket > 0)
+   {
+      MqlTick tick;
+      if (SymbolInfoTick(_Symbol, tick) && tick.bid > 0.0 && tick.ask > 0.0)
+      {
+         bool tp1_reached = (m_setup.dir == SIGNAL_BUY && tick.bid >= m_setup.partial_tp_price) ||
+                            (m_setup.dir == SIGNAL_SELL && tick.ask <= m_setup.partial_tp_price);
+         if (tp1_reached && PositionSelectByTicket(m_setup.position_ticket))
+         {
+            double cur_vol = PositionGetDouble(POSITION_VOLUME);
+            double min_vol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+            double vol_step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+
+            double close_vol = cur_vol * (InpPartialClosePercent / 100.0);
+            if (vol_step > 0.0)
+               close_vol = MathFloor(close_vol / vol_step) * vol_step;
+
+            if (close_vol >= min_vol && (cur_vol - close_vol) >= min_vol)
+            {
+               if (m_safety_trade.PositionClosePartial(m_setup.position_ticket, close_vol))
+               {
+                  m_setup.partial_tp_closed = true;
+                  m_sync_required = true;
+                  PrintFormat("PARTIAL TP: [RSIFibEA] Position #%llu closed partial %.2f lots at %.5f (TP1). Remaining: %.2f lots.",
+                              m_setup.position_ticket, close_vol, (m_setup.dir == SIGNAL_BUY ? tick.bid : tick.ask), cur_vol - close_vol);
+
+                  if (InpPartialLockBE)
+                  {
+                     double entry_px = PositionGetDouble(POSITION_PRICE_OPEN);
+                     double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+                     double desired_sl = (m_setup.dir == SIGNAL_BUY)
+                                         ? NormalizePriceDirectional(entry_px + InpBEOffsetTicks * tick_size, -1)
+                                         : NormalizePriceDirectional(entry_px - InpBEOffsetTicks * tick_size, 1);
+                     double cur_tp = PositionGetDouble(POSITION_TP);
+                     m_safety_trade.PositionModify(m_setup.position_ticket, desired_sl, cur_tp);
+                     PrintFormat("PARTIAL TP -> BE: [RSIFibEA] Moved SL to %.5f (Break-Even) on remaining position.", desired_sl);
+                  }
+               }
+            }
+            else
+            {
+               // Volume cannot be divided further, mark done to prevent repeated checks
+               m_setup.partial_tp_closed = true;
+            }
+         }
+      }
+   }
+
    if (InpUseFibTrailingStop)
       CheckAndApplyFibTrailingStop();
    else if (InpUseBreakEven)
@@ -981,6 +1058,7 @@ bool ComputeFibPrices()
       m_setup.stop_price          = NormalizePriceDirectional(raw_stop, -1);
       m_setup.target_price        = NormalizePriceDirectional(raw_target, -1);
       m_setup.visual_target_price = NormalizePriceDirectional(raw_visual_target, 0);
+      m_setup.partial_tp_price    = NormalizePriceDirectional(m_setup.P0 + 1.272 * m_setup.range, -1);
    }
    else if (m_setup.dir == SIGNAL_SELL)
    {
@@ -993,6 +1071,7 @@ bool ComputeFibPrices()
       m_setup.stop_price          = NormalizePriceDirectional(raw_stop, 1);
       m_setup.target_price        = NormalizePriceDirectional(raw_target, 1);
       m_setup.visual_target_price = NormalizePriceDirectional(raw_visual_target, 0);
+      m_setup.partial_tp_price    = NormalizePriceDirectional(m_setup.P0 - 1.272 * m_setup.range, 1);
    }
    else
       return false;
@@ -1127,21 +1206,24 @@ bool AdaptSLTPToVolatility()
          return false;
 
       double new_tp_distance = current_sl_distance * InpTPRiskMultiple;
+      double partial_tp_dist = current_sl_distance * InpPartialTPRiskMultiple;
 
       if (m_setup.dir == SIGNAL_BUY)
       {
          m_setup.target_price        = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance, -1);
-         m_setup.visual_target_price  = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance + tick_size, 0);
+         m_setup.visual_target_price = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance + tick_size, 0);
+         m_setup.partial_tp_price    = NormalizePriceDirectional(m_setup.entry_price + partial_tp_dist, -1);
       }
       else if (m_setup.dir == SIGNAL_SELL)
       {
          m_setup.target_price        = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance, 1);
-         m_setup.visual_target_price  = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance - tick_size, 0);
+         m_setup.visual_target_price = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance - tick_size, 0);
+         m_setup.partial_tp_price    = NormalizePriceDirectional(m_setup.entry_price - partial_tp_dist, 1);
       }
 
       if (InpVerboseLog)
-         PrintFormat("ADAPT: [RSIFibEA] TP adjusted to %.5f (SL dist=%.5f x %.1fR = TP dist=%.5f)",
-                     m_setup.target_price, current_sl_distance, InpTPRiskMultiple, new_tp_distance);
+         PrintFormat("ADAPT: [RSIFibEA] TP adjusted to %.5f (TP1=%.5f at %.1fR, TP2=%.5f at %.1fR)",
+                     m_setup.target_price, m_setup.partial_tp_price, InpPartialTPRiskMultiple, m_setup.target_price, InpTPRiskMultiple);
    }
 
    // --- Final validation of adapted geometry ---
@@ -1723,6 +1805,31 @@ bool ValidateInputs()
       Print("VALIDATION ERROR: InpTPRiskMultiple must be a positive finite number (<= 100).");
       return false;
    }
+   if (InpRSIDivLookbackBars < 3 || InpRSIDivLookbackBars > 200)
+   {
+      Print("VALIDATION ERROR: InpRSIDivLookbackBars must be between 3 and 200.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpRSIDivMinPivotDiff) || InpRSIDivMinPivotDiff < 0.0)
+   {
+      Print("VALIDATION ERROR: InpRSIDivMinPivotDiff must be a non-negative number.");
+      return false;
+   }
+   if (InpNewsMinsBefore < 0 || InpNewsMinsAfter < 0)
+   {
+      Print("VALIDATION ERROR: InpNewsMinsBefore and InpNewsMinsAfter must be non-negative.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpPartialTPRiskMultiple) || InpPartialTPRiskMultiple <= 0.0 || InpPartialTPRiskMultiple > 100.0)
+   {
+      Print("VALIDATION ERROR: InpPartialTPRiskMultiple must be a positive finite number (<= 100).");
+      return false;
+   }
+   if (!MathIsValidNumber(InpPartialClosePercent) || InpPartialClosePercent <= 0.0 || InpPartialClosePercent >= 100.0)
+   {
+      Print("VALIDATION ERROR: InpPartialClosePercent must be between 0 and 100.");
+      return false;
+   }
    if (InpTesterMinTrades < 1 || InpTesterTargetTrades < InpTesterMinTrades ||
        !MathIsValidNumber(InpTesterMaxDDPct) || InpTesterMaxDDPct <= 0.0 ||
        InpTesterMaxDDPct > 100.0 ||
@@ -2240,6 +2347,177 @@ bool CheckRSIQualityFilter(ENUM_SIGNAL_DIR dir, double rsi_1, double rsi_2)
    return true;
 }
 
+bool CheckRSIDivergenceFilter(ENUM_SIGNAL_DIR dir)
+{
+   if (!InpUseRSIDivergence)
+      return true;
+
+   int lookback = MathMax(5, MathMin(50, InpRSIDivLookbackBars));
+   double rsi_1 = 0.0;
+   if (!GetRSI(1, rsi_1))
+      return !InpRequireRSIDivergence;
+
+   if (dir == SIGNAL_BUY)
+   {
+      double price_1 = iLow(_Symbol, m_timeframe, 1);
+      if (price_1 <= 0.0 || !MathIsValidNumber(price_1))
+         return !InpRequireRSIDivergence;
+
+      int pivot_shift = -1;
+      double pivot_price = 0.0;
+      double pivot_rsi = 0.0;
+
+      for (int b = 3; b <= lookback - 1; b++)
+      {
+         double low_b = iLow(_Symbol, m_timeframe, b);
+         double low_prev = iLow(_Symbol, m_timeframe, b + 1);
+         double low_next = iLow(_Symbol, m_timeframe, b - 1);
+
+         if (low_b > 0.0 && low_b < low_prev && low_b < low_next) // Swing Low
+         {
+            double rsi_b = 0.0;
+            if (GetRSI(b, rsi_b))
+            {
+               pivot_shift = b;
+               pivot_price = low_b;
+               pivot_rsi = rsi_b;
+               break;
+            }
+         }
+      }
+
+      if (pivot_shift > 0)
+      {
+         // Regular Bullish Divergence: Lower Low on Price, Higher Low on RSI
+         if (price_1 < pivot_price && (rsi_1 - pivot_rsi) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Regular Bullish Div detected! Price: %.5f < %.5f (bar %d), RSI: %.2f > %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+         // Hidden Bullish Divergence: Higher Low on Price, Lower Low on RSI
+         else if (price_1 > pivot_price && (pivot_rsi - rsi_1) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Hidden Bullish Div detected! Price: %.5f > %.5f (bar %d), RSI: %.2f < %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+      }
+   }
+   else if (dir == SIGNAL_SELL)
+   {
+      double price_1 = iHigh(_Symbol, m_timeframe, 1);
+      if (price_1 <= 0.0 || !MathIsValidNumber(price_1))
+         return !InpRequireRSIDivergence;
+
+      int pivot_shift = -1;
+      double pivot_price = 0.0;
+      double pivot_rsi = 0.0;
+
+      for (int b = 3; b <= lookback - 1; b++)
+      {
+         double high_b = iHigh(_Symbol, m_timeframe, b);
+         double high_prev = iHigh(_Symbol, m_timeframe, b + 1);
+         double high_next = iHigh(_Symbol, m_timeframe, b - 1);
+
+         if (high_b > 0.0 && high_b > high_prev && high_b > high_next) // Swing High
+         {
+            double rsi_b = 0.0;
+            if (GetRSI(b, rsi_b))
+            {
+               pivot_shift = b;
+               pivot_price = high_b;
+               pivot_rsi = rsi_b;
+               break;
+            }
+         }
+      }
+
+      if (pivot_shift > 0)
+      {
+         // Regular Bearish Divergence: Higher High on Price, Lower High on RSI
+         if (price_1 > pivot_price && (pivot_rsi - rsi_1) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Regular Bearish Div detected! Price: %.5f > %.5f (bar %d), RSI: %.2f < %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+         // Hidden Bearish Divergence: Lower High on Price, Higher High on RSI
+         else if (price_1 < pivot_price && (rsi_1 - pivot_rsi) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Hidden Bearish Div detected! Price: %.5f < %.5f (bar %d), RSI: %.2f > %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+      }
+   }
+
+   if (InpRequireRSIDivergence)
+   {
+      if (InpVerboseLog)
+         Print("INFO: [RSIFibEA] Signal rejected because RSI Divergence was strictly required but none was confirmed.");
+      return false;
+   }
+
+   return true;
+}
+
+bool CheckEconomicCalendarFilter()
+{
+   if (!InpUseNewsFilter)
+      return true;
+
+   datetime now = TimeCurrent();
+   datetime time_from = now - (InpNewsMinsAfter * 60);
+   datetime time_to   = now + (InpNewsMinsBefore * 60);
+
+   MqlCalendarValue values[];
+   string currencies[];
+   int cur_count = StringSplit(InpNewsCurrency, ',', currencies);
+   if (cur_count <= 0)
+   {
+      ArrayResize(currencies, 1);
+      currencies[0] = InpNewsCurrency;
+      cur_count = 1;
+   }
+
+   for (int c = 0; c < cur_count; c++)
+   {
+      string curr = currencies[c];
+      StringTrimLeft(curr);
+      StringTrimRight(curr);
+      if (StringLen(curr) == 0)
+         continue;
+
+      ulong change_id = 0;
+      ResetLastError();
+      int count = CalendarValueHistory(values, change_id, time_from, time_to, NULL, curr);
+      if (count > 0)
+      {
+         for (int i = 0; i < count; i++)
+         {
+            MqlCalendarEvent event;
+            if (CalendarEventById(values[i].event_id, event))
+            {
+               if (event.importance >= InpNewsMinImportance)
+               {
+                  if (InpVerboseLog)
+                     PrintFormat("NEWS FILTER: [RSIFibEA] Blocked entry due to High-Impact News: '%s' (%s) at %s.",
+                                 event.name, curr, TimeToString(values[i].time));
+                  return false;
+               }
+            }
+         }
+      }
+   }
+
+   return true;
+}
+
 bool CheckMarketStructureFilter(ENUM_SIGNAL_DIR dir)
 {
    if (!InpUseMarketStructure)
@@ -2290,8 +2568,7 @@ bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
    if (m_mtf_ema_handle == INVALID_HANDLE)
       return false;
 
-   ENUM_TIMEFRAMES eval_tf = (InpMTFTimeframe == PERIOD_CURRENT) ? m_timeframe : InpMTFTimeframe;
-   double htf_close = iClose(_Symbol, eval_tf, 1);
+   double htf_close = iClose(_Symbol, InpMTFTimeframe, 1);
    if (htf_close <= 0.0 || !MathIsValidNumber(htf_close))
       return false;
 
@@ -3389,24 +3666,26 @@ void UpdateDashboard()
 
    string direction = (m_setup.dir == SIGNAL_BUY) ? "BUY" :
                       (m_setup.dir == SIGNAL_SELL) ? "SELL" : "NONE";
-   string filters = StringFormat("RSIQ:%s  MTF:%s  VOL:%s  BE:%s",
-                                 InpUseRSIQualityFilter ? "ON" : "OFF",
+   string filters = StringFormat("DIV:%s  NEWS:%s  BOS:%s  MTF:%s  VOL:%s  P-TP:%s",
+                                 InpUseRSIDivergence ? "ON" : "OFF",
+                                 InpUseNewsFilter ? "ON" : "OFF",
+                                 InpUseMarketStructure ? "ON" : "OFF",
                                  InpUseMTFTrendFilter ? "ON" : "OFF",
                                  InpUseVolatilityRegime ? "ON" : "OFF",
-                                 InpUseBreakEven ? "ON" : "OFF");
+                                 InpUsePartialTP ? "ON" : "OFF");
    string status = (m_state == STATE_FAULT && m_fault_reason != "")
                    ? m_fault_reason : m_last_status;
 
-   Comment(StringFormat("RSI Fib EA v2.00 | DEMO GUARD: %s\n"
+   Comment(StringFormat("RSI Fib EA v4.20 Quant Edge | DEMO GUARD: %s\n"
                         "State: %s | Direction: %s | Protection: %s\n"
                         "Spread: %.1f pts | Order: %llu | Position: %llu\n"
-                        "P0 %.5f | P1 %.5f | Entry %.5f | SL %.5f | TP %.5f\n"
-                        "%s\nStatus: %s",
+                        "P0 %.5f | P1 %.5f | Entry %.5f | SL %.5f | TP %.5f | TP1 %.5f\n"
+                        "Filters: %s\nStatus: %s",
                         InpDemoOnly ? "ON" : "OFF", EnumToString(m_state), direction,
                         m_protection_status, spread_points, m_setup.pending_ticket,
                         m_setup.position_ticket, m_setup.P0, m_setup.P1,
                         m_setup.entry_price, m_setup.stop_price, m_setup.target_price,
-                        filters, status));
+                        m_setup.partial_tp_price, filters, status));
 }
 
 void DrawSetupObjects()
@@ -3419,6 +3698,7 @@ void DrawSetupObjects()
    color col_p1      = clrDarkGray;
    color col_entry   = clrBlue;
    color col_stop    = clrRed;
+   color col_tp1     = clrOrange;
    color col_target  = clrGreen;
    color col_vtarget = clrDarkGreen;
 
@@ -3426,6 +3706,8 @@ void DrawSetupObjects()
    CreateHLine(m_obj_prefix + "P1", m_setup.P1, col_p1, STYLE_DOT, 1, "P1 (1.00)");
    CreateHLine(m_obj_prefix + "Entry", m_setup.entry_price, col_entry, STYLE_SOLID, 2, StringFormat("Entry (%.2f)", InpEntryRatio));
    CreateHLine(m_obj_prefix + "Stop", m_setup.stop_price, col_stop, STYLE_SOLID, 2, StringFormat("Stop (%.2f)", InpStopRatio));
+   if (InpUsePartialTP && m_setup.partial_tp_price > 0.0)
+      CreateHLine(m_obj_prefix + "TP1", m_setup.partial_tp_price, col_tp1, STYLE_DASH, 1, StringFormat("TP1 Partial (%.1fR)", InpPartialTPRiskMultiple));
    CreateHLine(m_obj_prefix + "Target", m_setup.target_price, col_target, STYLE_SOLID, 2, StringFormat("Target (%.2f)", InpTargetRatio));
    CreateHLine(m_obj_prefix + "VisualTarget", m_setup.visual_target_price, col_vtarget, STYLE_DASH, 1, StringFormat("Visual Target (%.2f)", InpVisualTargetRatio));
 }
@@ -3447,8 +3729,8 @@ void CreateHLine(string name, double price, color col, ENUM_LINE_STYLE style, in
 
 void RemoveChartObjects()
 {
-   string suffixes[6] = {"P0", "P1", "Entry", "Stop", "Target", "VisualTarget"};
-   for (int i = 0; i < 6; i++)
+   string suffixes[7] = {"P0", "P1", "Entry", "Stop", "TP1", "Target", "VisualTarget"};
+   for (int i = 0; i < 7; i++)
       ObjectDelete(0, m_obj_prefix + suffixes[i]);
 }
 //+------------------------------------------------------------------+

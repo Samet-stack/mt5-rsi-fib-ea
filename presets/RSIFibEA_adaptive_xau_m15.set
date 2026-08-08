@@ -1,5 +1,6 @@
 ; RSIFibRetracementEA Adaptive Geometry Preset
 ; SL/TP depend on chart volatility. Demo/tester only.
+
 InpDemoOnly=true
 InpMagicNumber=20260806
 InpRiskPercent=0.10
@@ -27,6 +28,27 @@ InpOverboughtLevel=70.0
 InpUseRSIQualityFilter=true
 InpRSIMinBarsInZone=2
 InpRSIMinExitDelta=4.0
+InpUseRSIDivergence=false
+InpRSIDivLookbackBars=15
+InpRSIDivMinPivotDiff=2.0
+InpRequireRSIDivergence=false
+InpUseNewsFilter=false
+InpNewsMinsBefore=30
+InpNewsMinsAfter=30
+InpNewsCurrency="USD"
+InpNewsMinImportance=CALENDAR_IMPORTANCE_HIGH
+InpUseMarketStructure=false
+InpStructureSwingBars=5
+InpRequireStructureBOS=true
+InpUseSweepBuffer=false
+InpSweepLookbackBars=5
+InpSweepBufferATR=0.3
+InpUseStagnationExit=false
+InpStagnationMaxBars=8
+InpFridayFilter=true
+InpFridayMaxHour=15
+InpCloseFridayEOD=true
+InpFridayCloseHour=20
 InpUseMTFTrendFilter=true
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
@@ -52,6 +74,10 @@ InpUseAdaptiveSL=true
 InpMinSLATRMultiple=1.5
 InpUseAdaptiveTP=true
 InpTPRiskMultiple=3.0
+InpUsePartialTP=false
+InpPartialTPRiskMultiple=2.5
+InpPartialClosePercent=50.0
+InpPartialLockBE=true
 InpUseBreakEven=true
 InpBETriggerFibRatio=0.50
 InpBEOffsetTicks=1

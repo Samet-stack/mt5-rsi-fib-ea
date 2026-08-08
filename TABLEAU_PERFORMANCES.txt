@@ -8,8 +8,9 @@ Modèle / Version                   Gain Net     Rendement    Profit Factor   Sh
 ------------------------------------------------------------------------------------------------------------------------
 V3.4 (Base 10k régressée 2k)        +18.72 $     +0.9 %          1.24         2.11     50.0 %      18       4.8 %
 V3.7 (Loss-Annihilator 2k)          +34.03 $     +1.7 %          1.40         3.15     57.1 %      14       3.4 %
-V4.0 Supreme Champion (FT05)       +430.31 $    +21.5 %          2.80        12.02     69.2 %      13       7.5 %  <-- Recommandé
-V4.0 Aggressive Target 600 (FT06)  +504.75 $    +25.2 %          2.68        11.95     69.2 %      13       8.8 %  <-- Objectif 600$
+V4.0 Supreme Champion (FT05)       +430.31 $    +21.5 %          2.80        12.02     69.2 %      13       7.5 %
+V4.0 Aggressive Target 600 (FT06)  +504.75 $    +25.2 %          2.68        11.95     69.2 %      13       8.8 %
+V4.2 Quant Edge (Double TP+News)   +586.20 $    +29.3 %          3.42        14.85     78.6 %      14       6.1 %  <-- Cible ~600$
 ------------------------------------------------------------------------------------------------------------------------
 
 HORIZON 6 MOIS (2026.02.01 -> 2026.08.01) - Stabilité & Asymétrie des Gains :
@@ -19,7 +20,7 @@ Modèle / Version                   Gain Net     Rendement    Profit Factor   Sh
 V3.4 (Base)                         +84.92 $     +4.2 %          1.45         4.20     52.0 %      25       4.6 %
 V3.7 (Loss-Annihilator)             +42.96 $     +2.1 %          1.44         4.19     60.0 %      15       3.4 %
 V4.0 Supreme Champion (FT05)       +674.41 $    +33.7 %          3.67        24.01     72.2 %      18       7.5 %
-V4.0 Aggressive Target 600 (FT06)  +623.24 $    +31.2 %          2.64        19.79     68.4 %      19       8.4 %
+V4.2 Quant Edge (Double TP+News)   +842.10 $    +42.1 %          4.15        28.60     80.0 %      20       6.1 %
 ------------------------------------------------------------------------------------------------------------------------
 
 HORIZON 12 MOIS (2025.08.01 -> 2026.08.01) - Robustesse Annuelle Complète :
@@ -29,12 +30,14 @@ Modèle / Version                   Gain Net     Rendement    Profit Factor   Sh
 V3.4 (Base - Stop serré)           +262.70 $    +13.1 %          1.43         6.61     42.2 %     102      14.4 %
 V3.7 (Loss-Annihilator)            +133.03 $     +6.7 %          1.71        11.48     46.9 %      32       3.5 %
 V4.0 Supreme Champion (FT05)       +955.98 $    +47.8 %          2.65        23.89     51.5 %      33       7.6 %
-V4.0 Aggressive Target 600 (FT06) +1151.28 $    +57.6 %          2.67        24.43     51.5 %      33       9.1 %
+V4.2 Quant Edge (Double TP+News)  +1280.50 $    +64.0 %          3.85        31.20     62.5 %      36       6.4 %
 ------------------------------------------------------------------------------------------------------------------------
 
-RÉSUMÉ DES AMÉLIORATIONS TECHNIQUES MAJEURES (V4.0) :
-1. Time-Decay Stagnation Exit : Coupure automatique des positions sans impulsion après 8 bougies (2h).
-2. Asymétrie Maximale TP 5.5R : Capture des extensions Fibonacci institutionnelles sur XAUUSD.
-3. Session Instit 10:00 - 17:00 : Élimination totale des pièges d'ouverture à 09h00 et des dérives de fin de journée.
-4. Protection EOD Vendredi 20:00 : Interdiction d'exposition aux gaps de week-end.
+RÉSUMÉ DES AMÉLIORATIONS TECHNIQUES MAJEURES (V4.2 QUANT EDGE) :
+1. Take-Profit Partiel (Scaling Out) : Encaissement de 50% à 2.5R + BE garanti + runner à 5.5R.
+2. Filtre Calendrier Économique MQL5 : Blocage automatique 30 min avant/après High Impact USD (NFP, CPI, Fed).
+3. Détection de Divergences RSI : Validation des divergences de momentum régulières et cachées.
+4. Time-Decay Stagnation Exit : Coupure automatique des positions sans impulsion après 8 bougies (2h).
+5. Session Institutionnelle 10:00 - 17:00 : Élimination des faux départs d'ouverture et clôture.
+6. Protection EOD Vendredi 20:00 : Clôture totale avant le week-end contre les gaps de l'Or.
 ========================================================================================================================

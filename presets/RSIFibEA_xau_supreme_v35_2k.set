@@ -2,6 +2,7 @@
 ; RSIFibEA V3.5 SUPREME CHAMPION PRESET (XAUUSD M15 - Capital 2000 USD)
 ; Trained and Backtested on 12 Months Real Ticks (PF 2.12 | +672.48 USD)
 ; ====================================================================
+
 InpDemoOnly=true
 InpMagicNumber=20260806
 InpRiskPercent=1.25
@@ -29,6 +30,27 @@ InpOverboughtLevel=72.0
 InpUseRSIQualityFilter=false
 InpRSIMinBarsInZone=2
 InpRSIMinExitDelta=4.0
+InpUseRSIDivergence=false
+InpRSIDivLookbackBars=15
+InpRSIDivMinPivotDiff=2.0
+InpRequireRSIDivergence=false
+InpUseNewsFilter=false
+InpNewsMinsBefore=30
+InpNewsMinsAfter=30
+InpNewsCurrency="USD"
+InpNewsMinImportance=CALENDAR_IMPORTANCE_HIGH
+InpUseMarketStructure=false
+InpStructureSwingBars=5
+InpRequireStructureBOS=true
+InpUseSweepBuffer=false
+InpSweepLookbackBars=5
+InpSweepBufferATR=0.3
+InpUseStagnationExit=false
+InpStagnationMaxBars=8
+InpFridayFilter=true
+InpFridayMaxHour=15
+InpCloseFridayEOD=true
+InpFridayCloseHour=20
 InpUseMTFTrendFilter=false
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
@@ -54,6 +76,10 @@ InpUseAdaptiveSL=true
 InpMinSLATRMultiple=1.8
 InpUseAdaptiveTP=true
 InpTPRiskMultiple=4.0
+InpUsePartialTP=false
+InpPartialTPRiskMultiple=2.5
+InpPartialClosePercent=50.0
+InpPartialLockBE=true
 InpUseBreakEven=true
 InpBETriggerFibRatio=0.618
 InpBEOffsetTicks=2

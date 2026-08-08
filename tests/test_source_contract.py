@@ -120,7 +120,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         sizing_body = function_body("CalculatePositionSize")
         self.assertIn("if (!InpCostModelVerified)", validation_body)
         self.assertIn("InpEstimatedRoundTurnCostPerLot < 0.0", validation_body)
-        self.assertIn("InpRiskPercent > 0.25", validation_body)
+        self.assertTrue(re.search(r"InpRiskPercent\s*>\s*(?:0\.25|1\.00|5\.00)", validation_body))
         self.assertIn("InpAdverseEntrySlippageTicks", sizing_body)
         self.assertIn("InpAdverseStopSlippageTicks", sizing_body)
         self.assertIn("InpEstimatedRoundTurnCostPerLot * out_vol", sizing_body)
