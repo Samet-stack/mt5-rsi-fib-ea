@@ -44,7 +44,7 @@ enum ENUM_SIGNAL_DIR
 input group "=== Guard & Risk Parameters ==="
 input bool     InpDemoOnly              = true;        // Demo Account Only Guard
 input ulong    InpMagicNumber           = 20260803;    // EA Magic Number
-input double   InpRiskPercent           = 0.10;        // Risk per trade (% of Equity, hard-capped at 0.25)
+input double   InpRiskPercent           = 0.25;        // Risk per trade (% of Equity, max 1.00%)
 input double   InpMaxDailyLossPct       = 1.0;         // Max Daily Loss/Drawdown (% of Equity)
 input int      InpMaxDailyTrades        = 2;           // Max new positions per day (0 = disabled)
 input int      InpMaxConsecutiveLosses  = 2;           // Max consecutive losses per day (0 = disabled)
@@ -1508,9 +1508,9 @@ bool ValidateInputs()
       Print("VALIDATION ERROR: InpPendingOrderBars must be between 1 and 10000.");
       return false;
    }
-   if (!MathIsValidNumber(InpRiskPercent) || InpRiskPercent <= 0.0 || InpRiskPercent > 0.25)
+   if (!MathIsValidNumber(InpRiskPercent) || InpRiskPercent <= 0.0 || InpRiskPercent > 2.00)
    {
-      Print("VALIDATION ERROR: InpRiskPercent must be positive and cannot exceed 0.25%.");
+      Print("VALIDATION ERROR: InpRiskPercent must be positive and cannot exceed 2.00%.");
       return false;
    }
    if (!InpCostModelVerified)
