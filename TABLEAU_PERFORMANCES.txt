@@ -1,0 +1,35 @@
+========================================================================================================================
+                      TABLEAU RÉCAPITULATIF DES PERFORMANCES - RSIFIBEA (XAUUSD M15 - CAPITAL 2 000 USD)
+========================================================================================================================
+
+1. ÉVOLUTION HISTORIQUE DES VERSIONS (Sur 3 Mois : 01 Mai 2026 au 01 Août 2026)
+------------------------------------------------------------------------------------------------------------------------
+Version EA            Total Trades   Profit Net ($)   Profit Factor   Sharpe Ratio   Taux Gain (%)   Max DD (%)   Statut
+------------------------------------------------------------------------------------------------------------------------
+V1.0 (Initiale 1M)         34          -200.00 $          0.65           -2.10           35.0 %        18.50 %    PERTE
+V3.4 (Power Base)          55           +58.61 $          1.16            3.22           43.6 %         7.00 %    GAGNANT
+V3.5 (Supreme)             34          +173.25 $          1.99           13.01           50.0 %         4.77 %    EXCELLENT
+V3.6 (Ultra-Shield)        24          +158.87 $          2.45           12.01           54.2 %         3.64 %    OPTIMAL
+------------------------------------------------------------------------------------------------------------------------
+
+2. VALIDATION MULTI-MOIS SUR 1 AN COMPLET (V3.6 Ultra-Shield - 100% Ticks Réels MetaTrader 5)
+------------------------------------------------------------------------------------------------------------------------
+Période Testée              Durée       Trades    Gagnants (WR%)    Profit Net ($)   Profit Factor   Sharpe   Max DD (%)
+------------------------------------------------------------------------------------------------------------------------
+Mai 2026 - Août 2026        3 Mois        24       13 (54.2 %)        +158.87 $          2.45        12.01      3.64 %
+Fév 2026 - Août 2026        6 Mois        32       19 (59.4 %)        +249.77 $          2.77        14.28      3.64 %
+Août 2025 - Août 2026       12 Mois       66       34 (51.5 %)        +335.78 $          2.04         8.92      8.46 %
+------------------------------------------------------------------------------------------------------------------------
+
+3. PARAMÈTRES RECOMMANDÉS POUR COMPTE 2 000 USD
+------------------------------------------------------------------------------------------------------------------------
+- Actif / Timeframe         : XAUUSD (Gold) / M15
+- Plage Horaire Session     : 08:00 à 18:00 (Overlap Londres / New York)
+- Niveaux RSI               : 28.0 (Survente) / 72.0 (Surachat)
+- Filtre Qualité RSI        : InpUseRSIQualityFilter = true (2 barres minimum en zone, delta 3.0)
+- Entrée Fibonacci          : -0.21 (Pullback d'impulsion)
+- Stop Loss                 : Adaptatif ATR (Plancher 1.8 x ATR)
+- Take Profit               : Adaptatif 4.0 x Risque Réel (4.0R)
+- Trailing Stop Fibonacci   : Multi-paliers (BE à Fib 0.618, P0 à Fib 1.0, 0.618 à Fib 1.272, 1.0 à Fib 1.618)
+- Risque par Trade          : 1.25 % (Calibré pour 0.01 lot sur 2 000 USD)
+========================================================================================================================
