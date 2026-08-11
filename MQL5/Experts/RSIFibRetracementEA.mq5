@@ -96,8 +96,16 @@ enum ENUM_FUNNEL_EVENT
 //+------------------------------------------------------------------+
 //| INPUT PARAMETERS                                                 |
 //+------------------------------------------------------------------+
+enum ENUM_EA_TRADE_DIRECTION
+{
+   EA_DIR_BOTH,         // Long & Short
+   EA_DIR_LONG_ONLY,    // Long Only
+   EA_DIR_SHORT_ONLY    // Short Only
+};
+
 //--- Security & Account Protection
 input group "=== Guard & Risk Parameters ==="
+input ENUM_EA_TRADE_DIRECTION InpTradeDirection = EA_DIR_BOTH; // Allowed Trade Directions
 input bool     InpDemoOnly              = true;        // Demo Account Only Guard
 input ulong    InpMagicNumber           = 20260803;    // EA Magic Number
 input double   InpRiskPercent           = 0.25;        // Risk per trade (% of Equity, software max 5.00; research only above 0.25)
@@ -757,6 +765,9 @@ void ProcessStateIdle()
 
    bool buy_signal  = (rsi_2 <= InpOversoldLevel && rsi_1 > InpOversoldLevel);
    bool sell_signal = (rsi_2 >= InpOverboughtLevel && rsi_1 < InpOverboughtLevel);
+
+   if (InpTradeDirection == EA_DIR_LONG_ONLY)  sell_signal = false;
+   if (InpTradeDirection == EA_DIR_SHORT_ONLY) buy_signal = false;
 
    if (!buy_signal && !sell_signal)
       return;
