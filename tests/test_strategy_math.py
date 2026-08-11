@@ -39,8 +39,8 @@ def validate_inputs(entry_ratio, stop_ratio, target_ratio, visual_target_ratio,
         return False, "AnchorWaitBars must be >= MinImpulseBars"
     if max_pending < 1:
         return False, "PendingOrderBars must be >= 1"
-    if risk_pct <= 0.0 or risk_pct > 10.0:
-        return False, "RiskPercent must be between 0 and 10%"
+    if risk_pct <= 0.0 or risk_pct > 5.0:
+        return False, "RiskPercent must be between 0 and 5%"
     return True, "OK"
 
 
@@ -98,6 +98,42 @@ def calculate_volume(equity, risk_pct, loss_per_lot, step_vol, min_vol, max_vol)
     if vol > max_vol:
         vol = max_vol
     return vol
+
+
+def min_lot_feasibility(equity, risk_pct, loss_per_lot, min_vol):
+    """Returns the exact minimum-lot risk diagnostics used by the EA."""
+    if min(equity, risk_pct, loss_per_lot, min_vol) <= 0.0:
+        raise ValueError("Invalid sizing inputs")
+    budget = equity * risk_pct / 100.0
+    min_loss = loss_per_lot * min_vol
+    return {
+        "budget": budget,
+        "min_loss": min_loss,
+        "actual_risk_pct": 100.0 * min_loss / equity,
+        "required_equity": min_loss / (risk_pct / 100.0),
+        "feasible": min_loss <= budget + 0.005,
+    }
+
+
+def split_volume(volume, close_percent, min_vol, step_vol):
+    """Floors a partial close and requires both legs to remain tradable."""
+    if (volume <= 0.0 or not 0.0 < close_percent < 100.0 or
+            min_vol <= 0.0 or step_vol <= 0.0):
+        return None
+    close_steps = math.floor((volume * close_percent / 100.0) / step_vol + 1e-9)
+    close_volume = round(close_steps * step_vol, 8)
+    remaining = round(volume - close_volume, 8)
+    if close_volume < min_vol or remaining < min_vol:
+        return None
+    return close_volume, remaining
+
+
+def partial_target(entry, stop, multiple, is_buy):
+    """Computes TP1 from actual Entry-to-SL risk in both directions."""
+    risk = abs(entry - stop)
+    if risk <= 0.0 or multiple <= 0.0:
+        raise ValueError("Invalid partial target inputs")
+    return entry + risk * multiple if is_buy else entry - risk * multiple
 
 
 def is_order_placement_allowed(entry, ask, bid, is_buy):
@@ -466,6 +502,11 @@ class TestInputValidation(unittest.TestCase):
         ok, _ = validate_inputs(-0.21, -0.29, 0.80, 2.64, 30.0, 70.0, 1, 8, 8, 0.25)
         self.assertFalse(ok)
 
+    def test_risk_above_mql_cap_is_rejected(self):
+        ok, _ = validate_inputs(-0.21, -0.29, 2.56, 2.64,
+                                30.0, 70.0, 1, 8, 8, 5.01)
+        self.assertFalse(ok)
+
 
 class TestEdgeCasesAndRisk(unittest.TestCase):
     def test_zero_or_negative_range(self):
@@ -500,6 +541,33 @@ class TestEdgeCasesAndRisk(unittest.TestCase):
             step_vol=0.01, min_vol=0.01, max_vol=100.0
         )
         self.assertEqual(vol, 0.0)
+
+    def test_3000_account_reports_minimum_capital_instead_of_forcing_lot(self):
+        diagnostic = min_lot_feasibility(
+            equity=3000.0,
+            risk_pct=0.25,
+            loss_per_lot=981.0,
+            min_vol=0.01,
+        )
+        self.assertFalse(diagnostic["feasible"])
+        self.assertAlmostEqual(diagnostic["budget"], 7.50)
+        self.assertAlmostEqual(diagnostic["min_loss"], 9.81)
+        self.assertAlmostEqual(diagnostic["actual_risk_pct"], 0.327)
+        self.assertAlmostEqual(diagnostic["required_equity"], 3924.0)
+
+    def test_exact_minimum_lot_boundary_is_feasible(self):
+        diagnostic = min_lot_feasibility(4000.0, 0.25, 1000.0, 0.01)
+        self.assertTrue(diagnostic["feasible"])
+        self.assertAlmostEqual(diagnostic["budget"], diagnostic["min_loss"])
+
+    def test_partial_split_respects_minimum_and_step(self):
+        self.assertIsNone(split_volume(0.01, 50.0, 0.01, 0.01))
+        self.assertEqual(split_volume(0.02, 50.0, 0.01, 0.01), (0.01, 0.01))
+        self.assertEqual(split_volume(0.03, 50.0, 0.01, 0.01), (0.01, 0.02))
+
+    def test_partial_target_is_exactly_risk_based(self):
+        self.assertAlmostEqual(partial_target(100.0, 99.0, 2.5, True), 102.5)
+        self.assertAlmostEqual(partial_target(100.0, 101.0, 2.5, False), 97.5)
 
     def test_fractional_volume_step_never_rounds_up(self):
         vol = calculate_volume(

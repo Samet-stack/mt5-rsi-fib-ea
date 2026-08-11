@@ -1,0 +1,3 @@
+artifacts/experiments_v4/runs/**/raw/tester.log binary
+artifacts/experiments_v4/runs/**/raw/report.htm binary
+artifacts/experiments_v4/runs/**/inputs/expert.ex5 binary

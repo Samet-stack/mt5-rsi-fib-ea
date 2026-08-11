@@ -1,4 +1,4 @@
-# RSI Fibonacci Retracement EA — recherche V4.2 pour MT5
+# RSI Fibonacci Retracement EA — recherche V4.30 pour MT5
 
 [![Tests Python](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml/badge.svg)](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml)
 ![Usage](https://img.shields.io/badge/usage-tester%20%2F%20d%C3%A9mo%20uniquement-blue)
@@ -10,7 +10,7 @@
 
 Le trading d'instruments financiers comporte des risques élevés de perte en capital. Les performances passées ou les simulations de backtest ne garantissent aucunement les résultats futurs. Aucune promesse de rentabilité n'est formulée. Cette version doit rester en démo tant que sa compilation, ses backtests hors échantillon et son suivi forward n'ont pas été validés.
 
-**État au 11 août 2026 :** le code contient les modules expérimentaux V4.2 et passe 118 tests locaux. La compilation native MetaEditor est vérifiée séparément. Aucun rapport brut V4.0/V4.2 ne soutient actuellement les anciens objectifs de gain : ces chiffres ont été retirés de la présentation publique. Le seul candidat enregistré et audité reste rejeté/invalide comme preuve économique. Tous les presets sont bloqués par `InpCostModelVerified=false` jusqu'à la saisie de coûts broker réellement documentés. Voir [`RAPPORT_AMELIORATIONS.md`](RAPPORT_AMELIORATIONS.md) et [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
+**État au 11 août 2026 :** la V4.30 passe 146 tests locaux et compile avec 0 erreur / 0 avertissement dans MetaEditor build 6090. Sept backtests XAUUSD M15 sur janvier 2026 sont archivés avec source, preset, EX5, rapport brut, funnel et hashes. Le meilleur run produit +20,79 USD natifs / +20,09 USD après coût supposé, mais seulement sur 10 positions : le verdict reste **inconclusif** et cette fenêtre est désormais contaminée. Tous les presets publics restent bloqués par `InpCostModelVerified=false`. Voir le [`rapport d'ablation V4.30`](docs/JAN_2026_V430_ABLATION.md), [`RAPPORT_AMELIORATIONS.md`](RAPPORT_AMELIORATIONS.md) et [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
 
 ---
 
@@ -22,7 +22,7 @@ L'**RSIFibRetracementEA** est un Expert Advisor (EA) développé en MQL5 pour Me
 3. Le placement d'un **ordre limite** sur un niveau de retracement sous le niveau 0 (`-0.21` par défaut), protégé par un Stop-Loss au niveau d'invalidation (`-0.29` par défaut) et visant une extension à `2.56` (`2.64` en ligne visuelle).
 4. Un cadrage du risque monétaire basé sur un pourcentage de l'Equity (0,25 % par défaut ; plafond logiciel de 5 % réservé au Strategy Tester et déconseillé au-dessus de 0,25 %), estimé par `OrderCalcProfit` avec coûts et slippage conservateurs, puis arrondi vers le bas au pas de volume du symbole.
 
-Les versions V2 à V4.2 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, structure de marché, filtre de calendrier, géométrie adaptative, break-even, trailing Fibonacci, sortie de stagnation et prise partielle. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et protège la reprise après redémarrage. Une fonctionnalité implémentée n'est jamais présentée comme une preuve de performance.
+Les versions V2 à V4.30 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, vrai break de structure, calendrier live ou fichier testeur, géométrie adaptative, break-even, trailing Fibonacci, sortie de stagnation et prise partielle. La V4.30 ajoute un funnel de premiers rejets, les diagnostics de capital minimum et une prise partielle compatible hedging/netting avec contrôle des retcodes. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et protège la reprise après redémarrage. Une fonctionnalité implémentée n'est jamais présentée comme une preuve de performance.
 
 Le preset conservateur garde tous les modules stratégiques V2 coupés afin de préserver le comportement de référence. Le preset `RSIFibRetracementEA_v2_research.set` les active à faible risque sur un signal **M15** et une tendance **H1**, uniquement comme hypothèse de recherche, jamais comme preuve de rentabilité.
 
@@ -85,7 +85,8 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | **Qualité RSI** | `InpUseRSIQualityFilter` | `false` | Exige une excursion consécutive en zone et une vitesse minimale de sortie. |
 | | `InpRSIMinBarsInZone` / `InpRSIMinExitDelta` | `2` / `4.0` | Profondeur temporelle et impulsion minimales, sur bougies clôturées. |
 | **Divergence RSI** | `InpUseRSIDivergence` / `InpRequireRSIDivergence` | `false` / `false` | Détecte ou exige une divergence sur pivots clôturés ; module expérimental. |
-| **Calendrier** | `InpUseNewsFilter` | `false` | Bloque les entrées autour des événements configurés et échoue fermé si le calendrier demandé est indisponible. |
+| **Calendrier** | `InpNewsMode` | `NEWS_DISABLED` (`0`) | `0` désactivé, `1` calendrier live, `2` fichier testeur déterministe. Le live est interdit dans Strategy Tester et les erreurs fichier/API échouent fermées. |
+| | `InpTesterNewsFile` | `RSIFibEA\news_events_v1.csv` | Chemin relatif dans `Terminal/Common/Files` ; schéma et heure serveur documentés dans [`docs/NEWS_TESTER_FILE.md`](docs/NEWS_TESTER_FILE.md). |
 | **Structure** | `InpUseMarketStructure` / `InpUseSweepBuffer` | `false` / `false` | Filtres optionnels de structure et de buffer derrière les mèches récentes. |
 | **Temps/week-end** | `InpUseStagnationExit` / `InpFridayFilter` | `false` / `true` | Sortie optionnelle des positions stagnantes et restrictions de fin de semaine. |
 | **Tendance MTF** | `InpUseMTFTrendFilter` | `false` | Confirme le sens par le Close HTF face à son EMA. |
@@ -143,8 +144,8 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - Expiration serveur finie prioritaire. Pour un future, la durée pending complète doit finir avant le cutoff d'échéance et GTC seul est refusé.
    - Au cutoff, redémarrer l'EA ne l'abandonne pas : il reste en gestion seulement, annule le pending et tente d'aplatir la position avec contrôle du retcode et retry. Une fermeture cliente reste impossible à garantir si MT5/VPS est hors ligne ; les protections broker demeurent indispensables.
    - Au redémarrage, restauration de la direction, de l'heure, de l'entrée, du SL, du TP et de la géométrie depuis l'ordre broker.
-5. **Filtres et gestion V2–V4.2** :
-   - Les filtres sont évalués une fois au signal, uniquement avec des données clôturées, et échouent fermés si une donnée manque.
+5. **Filtres et gestion V2–V4.30** :
+   - Les filtres sont évalués séquentiellement au signal, uniquement avec des données clôturées. Chaque croisement reçoit un premier motif de rejet stable dans le résumé `FUNNEL|reason|count`.
    - Le break-even utilise `Bid` pour un achat et `Ask` pour une vente, respecte le tick size, les niveaux `STOPS/FREEZE`, conserve le TP et vérifie le retcode broker.
    - Après redémarrage, le range est reconstruit depuis le prix limite historique (ou le fill réel en fallback) et le TP ; le SL courant peut donc déjà être à break-even sans corrompre la géométrie originale.
 6. **Runtime défensif** :
@@ -198,6 +199,12 @@ python3 tools/experiment_registry.py --root artifacts/experiments_v3 verify
 ```
 
 `tools/run_registered_diagnostic.py` refuse un source, preset, rapport ou probe dont le hash ne correspond pas à la spec immuable. La spec historique ne peut donc pas être réutilisée avec le nouveau source V3 ; les copies exactes restent archivées dans chaque run.
+
+La couche V4 ajoute :
+
+- [`tools/archive_mt5_run.py`](tools/archive_mt5_run.py), qui refuse l'écrasement, compare les 91 paramètres effectifs au preset et hash chaque artefact ;
+- [`tools/cost_adjustment.py`](tools/cost_adjustment.py), qui agrège les sorties partielles, conserve commission/swap/frais natifs une seule fois et n'ajoute jamais une seconde fois le spread déjà implicite ;
+- les sept archives de [`artifacts/experiments_v4/runs`](artifacts/experiments_v4/runs), liées au rapport d'ablation janvier 2026.
 
 Le manifeste de données est dans [`docs/DATA_MANIFEST_V3.md`](docs/DATA_MANIFEST_V3.md). Le prompt directeur Codex/Gemini est [`MASTER_RESEARCH_PROMPT_V3.md`](MASTER_RESEARCH_PROMPT_V3.md).
 Le snapshot historique des garde-fous V3 est consigné dans [`docs/SAFETY_PATCH_V3.md`](docs/SAFETY_PATCH_V3.md) ; les contrôles du source courant sont ceux de la CI et de la compilation native la plus récente.

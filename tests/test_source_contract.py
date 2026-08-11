@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import unittest
 
+from tools.auto_optimizer import BASE_TEMPLATE
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATH = PROJECT_ROOT / "MQL5" / "Experts" / "RSIFibRetracementEA.mq5"
@@ -78,6 +80,37 @@ class TestMQL5SafetyContracts(unittest.TestCase):
 
                 self.assertEqual(len(preset_names), len(set(preset_names)))
                 self.assertEqual(set(preset_names), set(input_names))
+
+    def test_public_presets_use_mt5_native_enum_and_string_encoding(self):
+        for preset_path in sorted(PRESETS_DIR.glob("*.set")):
+            with self.subTest(preset=preset_path.name):
+                values = {}
+                for raw_line in preset_path.read_text(encoding="utf-8").splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith(";"):
+                        continue
+                    name, _, value = line.partition("=")
+                    values[name.strip()] = value.strip().split("||", 1)[0]
+
+                self.assertRegex(values["InpNewsMode"], r"^[012]$")
+                self.assertRegex(values["InpNewsMinImportance"], r"^[0-3]$")
+                self.assertEqual(values["InpNewsCurrency"], "USD")
+                self.assertEqual(
+                    values["InpTesterNewsFile"], r"RSIFibEA\news_events_v1.csv")
+                self.assertNotIn('"', values["InpTesterNewsFile"])
+
+    def test_optimizer_template_covers_every_input_and_serializes_news_safely(self):
+        input_names = set(re.findall(
+            r"^\s*input\s+(?!group\b)[A-Za-z_][A-Za-z0-9_]*\s+"
+            r"(Inp[A-Za-z0-9_]+)\s*=",
+            SOURCE,
+            flags=re.MULTILINE,
+        ))
+        self.assertEqual(set(BASE_TEMPLATE), input_names)
+        self.assertRegex(BASE_TEMPLATE["InpNewsMode"], r"^[012]$")
+        self.assertEqual(BASE_TEMPLATE["InpNewsCurrency"], "USD")
+        self.assertEqual(
+            BASE_TEMPLATE["InpTesterNewsFile"], r"RSIFibEA\news_events_v1.csv")
 
     def test_demo_guard_defaults_to_enabled(self):
         self.assertIn("input bool     InpDemoOnly              = true;", SOURCE)
@@ -332,16 +365,96 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         self.assertIn("EMPTY_VALUE", mtf_body)
         self.assertIn("EMPTY_VALUE", vol_body)
 
-    def test_news_filter_uses_supported_calendar_signature_and_fails_closed(self):
+    def test_news_filter_routes_explicit_sources_and_fails_closed(self):
+        init_body = function_body("InitNewsSource")
         body = function_body("CheckEconomicCalendarFilter")
+        live_body = function_body("CheckLiveEconomicCalendar")
+        file_body = function_body("CheckTesterEconomicCalendar")
+        loader_body = function_body("LoadTesterNewsFile")
+
+        for mode in ("NEWS_DISABLED", "NEWS_LIVE_CALENDAR", "NEWS_TESTER_FILE"):
+            self.assertIn(mode, init_body)
+            self.assertIn(mode, body)
+        self.assertIn("live_calendar_unavailable_in_tester", init_body)
         self.assertIn(
             "CalendarValueHistory(values, time_from, time_to, NULL, curr)",
-            body,
+            live_body,
         )
-        self.assertNotIn("change_id", body)
-        failure_body = block_after_token(body, "if (count < 0)")
+        self.assertNotIn("CalendarValueHistory", file_body)
+        self.assertNotIn("CalendarEventById", file_body)
+        failure_body = block_after_token(live_body, "if (count < 0)")
         self.assertIn("return false", failure_body)
-        self.assertIn("Entry blocked fail-closed", failure_body)
+        metadata_failure = block_after_token(
+            live_body, "if (!CalendarEventById(values[i].event_id, event))")
+        self.assertIn("return false", metadata_failure)
+        self.assertIn("FILE_COMMON", loader_body)
+        self.assertIn("RSIFIB_NEWS_V1", loader_body)
+        self.assertIn("BROKER_SERVER", loader_body)
+        self.assertIn("coverage_from", loader_body)
+        self.assertIn("coverage_to", loader_body)
+
+    def test_funnel_has_named_first_failure_counters(self):
+        idle_body = function_body("ProcessStateIdle")
+        summary_body = function_body("EmitFunnelSummary")
+        self.assertNotRegex(
+            idle_body,
+            r"CheckRSIQualityFilter\([\s\S]*?\)\s*\|\|",
+        )
+        for reason in (
+            "FUNNEL_RSI_CROSS",
+            "FUNNEL_REJECT_RSI_QUALITY",
+            "FUNNEL_REJECT_RSI_DIVERGENCE",
+            "FUNNEL_REJECT_MARKET_STRUCTURE",
+            "FUNNEL_REJECT_MTF_TREND",
+            "FUNNEL_REJECT_VOLATILITY",
+            "FUNNEL_REJECT_NEWS",
+            "FUNNEL_REJECT_DAILY_RISK",
+            "FUNNEL_REJECT_SPREAD",
+            "FUNNEL_REJECT_SESSION",
+            "FUNNEL_REJECT_CONTRACT",
+            "FUNNEL_SIGNAL_ACCEPTED",
+        ):
+            self.assertIn(reason, idle_body)
+        self.assertIn("FUNNEL_SUMMARY_BEGIN", summary_body)
+        self.assertIn("FUNNEL_SUMMARY_END", summary_body)
+        self.assertIn("EmitFunnelSummary()", function_body("OnDeinit"))
+
+    def test_partial_tp_is_risk_based_split_safe_and_retcode_checked(self):
+        fib_body = function_body("ComputeFibPrices")
+        position_body = function_body("ProcessStateInPosition")
+        split_body = function_body("CanSplitVolume")
+        close_body = function_body("ExecuteManagedPartialClose")
+        self.assertIn("InpPartialTPRiskMultiple", fib_body)
+        self.assertNotIn("1.272", fib_body)
+        self.assertIn("close_volume < min_volume", split_body)
+        self.assertIn("remaining_volume < min_volume", split_body)
+        self.assertIn("CanSplitVolume", position_body)
+        self.assertIn("PARTIAL_DISABLED_UNSPLITTABLE", position_body)
+        self.assertIn("ResultRetcode", close_body)
+        self.assertIn("TRADE_RETCODE_DONE_PARTIAL", close_body)
+        self.assertIn("ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", close_body)
+        self.assertIn("m_safety_trade.Sell", close_body)
+        self.assertIn("m_safety_trade.Buy", close_body)
+
+    def test_friday_guard_is_independent_from_session_filter(self):
+        body = function_body("CheckSession")
+        self.assertLess(body.index("InpFridayFilter"),
+                        body.index("if (!InpUseSessionFilter)"))
+
+    def test_sweep_buffer_initializes_atr_and_is_not_short_circuited(self):
+        init_body = function_body("OnInit")
+        adapt_body = function_body("AdaptSLTPToVolatility")
+        self.assertIn("InpUseSweepBuffer", init_body)
+        early_return = adapt_body.index(
+            "if (!InpUseAdaptiveSL && !InpUseAdaptiveTP && !InpUseSweepBuffer)")
+        sweep_block = adapt_body.index("if (InpUseSweepBuffer)")
+        self.assertLess(early_return, sweep_block)
+
+    def test_market_structure_requires_a_real_close_break(self):
+        body = function_body("CheckMarketStructureFilter")
+        self.assertIn("iClose(_Symbol, m_timeframe, 1)", body)
+        self.assertIn("close_1 > swing_high", body)
+        self.assertIn("close_1 < swing_low", body)
 
     def test_closed_rsi_pair_is_copied_once_with_correct_buffer_order(self):
         body = function_body("GetClosedRSIPair")

@@ -1,0 +1,74 @@
+{
+  "artifacts": [
+    {
+      "bytes": 160975,
+      "media_type": "text/x-mql5",
+      "path": "inputs/source.mq5",
+      "role": "source",
+      "sha256": "dc57042cfb3a46e81a3f3b9b64b696210a14631d4c4de3455615b98c745103f6"
+    },
+    {
+      "bytes": 2368,
+      "media_type": "text/plain",
+      "path": "inputs/preset.set",
+      "role": "preset",
+      "sha256": "8931c13e7ce491fbd3bc477f6129e7a66570c4f01779d07e71d468552547ab49"
+    },
+    {
+      "bytes": 154100,
+      "media_type": "application/octet-stream",
+      "path": "inputs/expert.ex5",
+      "role": "compiled-binary",
+      "sha256": "32458252edf489d6d220dc07c5c67c4227c4d1819e1c237430cd11a6c2696b5b"
+    },
+    {
+      "bytes": 56048,
+      "media_type": "text/html",
+      "path": "raw/report.htm",
+      "role": "mt5-report",
+      "sha256": "0369945f9112d0ae0322b6cd0a14c19ab899d8a2e94ef3f9a6e717fbebb10c13"
+    },
+    {
+      "bytes": 3212,
+      "media_type": "text/plain",
+      "path": "raw/tester.log",
+      "role": "tester-log",
+      "sha256": "e7a3f583555bb398e65e704be719f9758d53321ed683d8721e233e719ca471ff"
+    },
+    {
+      "bytes": 2689,
+      "media_type": "application/json",
+      "path": "inputs/effective_parameters.json",
+      "role": "effective-parameters",
+      "sha256": "019c3e45194df596473e7ac00714fb7ebbf627f178e0f2afe529e86c1b653c74"
+    }
+  ],
+  "cost": {
+    "currency": "USD",
+    "round_turn_per_lot": "7",
+    "verified": true
+  },
+  "environment": {
+    "broker": "MetaQuotes-Demo",
+    "model": "real_ticks",
+    "symbol": "XAUUSD",
+    "terminal_build": 6090,
+    "timeframe": "M15"
+  },
+  "parameter_comparison": {
+    "effective_count": 91,
+    "matched": true,
+    "mismatched": [],
+    "missing": [],
+    "performed": true,
+    "preset_count": 91,
+    "unexpected": []
+  },
+  "run_id": "d5f412f5-6a64-4703-9395-10459372b0bb",
+  "schema": "rsifib-mt5-run-archive/v1",
+  "seed": 20260811,
+  "window": {
+    "from": "2026-01-01",
+    "to": "2026-02-01"
+  }
+}

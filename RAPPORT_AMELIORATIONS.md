@@ -1,4 +1,4 @@
-# Journal technique V4.2 — état de validation
+# Journal technique V4.30 — état de validation
 
 Ce document décrit les fonctionnalités présentes dans le code. Il ne constitue
 ni une promesse de rendement, ni un conseil financier, ni la validation d’une
@@ -9,14 +9,14 @@ espérance positive.
 - L’EA reste limité au Strategy Tester ou à un compte MT5 classé démo.
 - Les presets publics conservent `InpCostModelVerified=false` : ils refusent de
   démarrer tant que le coût aller-retour du broker n’a pas été documenté.
-- La suite Python vérifie la géométrie, le sizing, les gardes broker, les
-  restaurations, le parseur, le diagnostic et le registre expérimental.
-- La compilation native MetaEditor doit afficher `0 errors, 0 warnings` pour
-  chaque changement du source MQL5.
+- Les 146 tests Python vérifient la géométrie, le sizing, les gardes broker,
+  les restaurations, le parseur, les coûts et les registres expérimentaux.
+- La compilation native MetaEditor build 6090 affiche `0 errors, 0 warnings`
+  pour la V4.30 archivée.
 
 ## Fonctionnalités implémentées
 
-La branche V4.2 contient, en plus de la logique RSI/Fibonacci de base, des
+La branche V4.30 contient, en plus de la logique RSI/Fibonacci de base, des
 modules optionnels désactivables :
 
 1. géométrie SL/TP adaptative à l’ATR ;
@@ -24,9 +24,10 @@ modules optionnels désactivables :
 3. sortie de stagnation et protection de fin de semaine ;
 4. structure de marché et buffer de liquidité ;
 5. divergence RSI ;
-6. filtre du calendrier économique, désormais fail-closed si le calendrier
-   demandé est indisponible ;
-7. prise de profit partielle avec gestion du volume restant.
+6. calendrier explicite désactivé/live/fichier testeur, fail-closed ;
+7. prise de profit partielle vérifiée contre le lot minimum et les retcodes ;
+8. funnel de premiers rejets et diagnostic exact du capital minimum ;
+9. outils d'ajustement de coûts et d'archivage sans écrasement.
 
 La présence d’un module dans le code prouve seulement son implémentation. Elle
 ne prouve pas son utilité économique.
@@ -38,6 +39,7 @@ ne prouve pas son utilité économique.
 | Baseline/V2/V3 enregistrée | rapports, sonde, diagnostics et ledger hashé | candidat historique rejeté ou techniquement invalide après audit des coûts |
 | V3.4/V3.5 | quelques rapports MT5 historiques | exploratoire, non assimilable à un holdout vierge |
 | V4.0/V4.2 | aucun rapport brut correspondant archivé dans le dépôt | performance non vérifiée ; aucun chiffre revendiqué |
+| V4.30 janvier 2026 | sept rapports vrais ticks, presets effectifs, EX5, funnels et manifests hashés | +20,09 USD ajustés sur le meilleur run, mais seulement 10 positions : inconclusif |
 
 Les anciennes appellations de fichiers comme `supreme`, `annihilator` ou
 `target600` sont conservées uniquement pour ne pas casser la traçabilité des
@@ -50,6 +52,12 @@ correspondant. Ils ne sont donc pas reproductibles. Une mesure ne réintègre la
 documentation que si le dépôt contient au minimum : source et preset hashés,
 rapport MT5 brut, symbole/serveur/période, vrais ticks, coûts, nombre total
 d’essais et diagnostic enregistré.
+
+La V4.30 réintroduit uniquement les mesures appuyées par les archives de
+[`artifacts/experiments_v4/runs`](artifacts/experiments_v4/runs). Le détail,
+les coûts et les limites statistiques figurent dans
+[`docs/JAN_2026_V430_ABLATION.md`](docs/JAN_2026_V430_ABLATION.md). Janvier
+2026 a servi à choisir entre les sorties et ne constitue plus un holdout.
 
 ## Prochaines étapes
 

@@ -19,19 +19,22 @@ de rendement et ne promet pas un commit quotidien.
 - [ ] figer broker, serveur, symbole et timeframe exacts ;
 - [ ] archiver commission, spread, swap, slippage et règles de marge ;
 - [ ] sonder le contrat cible sans envoyer d’ordre ;
-- [ ] confirmer la faisabilité du volume minimal sur le compte démo.
+- [x] mesurer la faisabilité du volume minimal sur MetaQuotes-Demo/XAUUSD :
+  0,25 % est insuffisant sur janvier et 0,50 % ne permet que 0,01 lot ;
 
 ## P2 — qualité des données
 
 - [ ] manifeste de ticks avec trous, timezone et DST ;
-- [ ] ledger shadow signal/setup/pending/fill/trade ;
+- [x] funnel journalisé signal/rejet/setup/ordre avec codes stables ;
+- [ ] ledger complet fill/trade, MFE/MAE et motif de sortie ;
 - [ ] MFE/MAE et temps vers les niveaux ;
 - [ ] coûts et non-fills conservateurs ;
 - [ ] séparation signal en R / contraintes du compte.
 
 ## P3 — validation
 
-- [ ] ablations une modification à la fois ;
+- [x] première ablation des sorties sur janvier 2026, désormais contaminé ;
+- [ ] répéter les ablations sur des fenêtres préenregistrées non utilisées ;
 - [ ] walk-forward préenregistré ;
 - [ ] correction du nombre total d’essais ;
 - [ ] holdout final réellement vierge ;
