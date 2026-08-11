@@ -62,14 +62,16 @@ def parse_ea_contract(path: Path) -> dict[str, object]:
         stripped = line.strip()
         if stripped.startswith("input ") and not stripped.startswith("input group"):
             declaration = stripped.split("//", 1)[0].strip()
-            inputs.append({"line": line_number, "declaration": declaration})
+            # Compact scalar records preserve location + declaration while
+            # avoiding repeated JSON object keys in token-constrained reviews.
+            inputs.append(f"{line_number}:{declaration}")
         function_match = re.match(
             r"^(?:int|void|bool|double|datetime|string|ulong|ENUM_[A-Z0-9_]+)\s+"
             r"([A-Za-z_][A-Za-z0-9_]*)\s*\(",
             stripped,
         )
         if function_match:
-            functions.append({"line": line_number, "name": function_match.group(1)})
+            functions.append(f"{line_number}:{function_match.group(1)}")
     return {
         "version": version_match.group(1) if version_match else "unknown",
         "inputs": inputs,

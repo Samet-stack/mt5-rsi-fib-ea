@@ -17,7 +17,7 @@ SOURCE = SOURCE_PATH.read_text(encoding="utf-8")
 def function_body(name):
     """Returns a top-level MQL function body using balanced braces."""
     match = re.search(
-        rf"\b(?:void|bool|double|int)\s+{re.escape(name)}\s*\(", SOURCE)
+        rf"\b(?:void|bool|double|int|string)\s+{re.escape(name)}\s*\(", SOURCE)
     if match is None:
         raise AssertionError(f"MQL function {name} was not found")
     opening = SOURCE.find("{", match.end())
@@ -131,7 +131,9 @@ class TestMQL5SafetyContracts(unittest.TestCase):
             "ExecutePendingOrder": "m_trade.BuyLimit",
             "CancelPendingOrder": "m_trade.OrderDelete",
             "CloseManagedPositionForContractCutoff": "m_safety_trade.PositionClose",
+            "ExecuteManagedPositionClose": "m_safety_trade.PositionClose",
             "CheckAndApplyBreakEven": "m_safety_trade.PositionModify",
+            "CheckAndApplyRiskTrailingStop": "m_safety_trade.PositionModify",
             "CheckAndApplyFibTrailingStop": "m_safety_trade.PositionModify",
             "DeleteResidualOrder": "m_trade.OrderDelete",
             "ServiceUnprotectedPosition": "m_safety_trade.PositionClose",
@@ -396,6 +398,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
     def test_funnel_has_named_first_failure_counters(self):
         idle_body = function_body("ProcessStateIdle")
         summary_body = function_body("EmitFunnelSummary")
+        name_body = function_body("FunnelEventName")
         self.assertNotRegex(
             idle_body,
             r"CheckRSIQualityFilter\([\s\S]*?\)\s*\|\|",
@@ -409,6 +412,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
             "FUNNEL_REJECT_VOLATILITY",
             "FUNNEL_REJECT_NEWS",
             "FUNNEL_REJECT_DAILY_RISK",
+            "FUNNEL_REJECT_PORTFOLIO",
             "FUNNEL_REJECT_SPREAD",
             "FUNNEL_REJECT_SESSION",
             "FUNNEL_REJECT_CONTRACT",
@@ -417,6 +421,8 @@ class TestMQL5SafetyContracts(unittest.TestCase):
             self.assertIn(reason, idle_body)
         self.assertIn("FUNNEL_SUMMARY_BEGIN", summary_body)
         self.assertIn("FUNNEL_SUMMARY_END", summary_body)
+        self.assertIn("FUNNEL_REJECT_PORTFOLIO", name_body)
+        self.assertIn('return "REJECT_PORTFOLIO"', name_body)
         self.assertIn("EmitFunnelSummary()", function_body("OnDeinit"))
 
     def test_partial_tp_is_risk_based_split_safe_and_retcode_checked(self):
@@ -435,6 +441,26 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         self.assertIn("ACCOUNT_MARGIN_MODE_RETAIL_HEDGING", close_body)
         self.assertIn("m_safety_trade.Sell", close_body)
         self.assertIn("m_safety_trade.Buy", close_body)
+
+    def test_friday_and_stagnation_closes_are_owned_retried_and_confirmed(self):
+        position_body = function_body("ProcessStateInPosition")
+        close_body = function_body("ExecuteManagedPositionClose")
+        self.assertIn(
+            'ExecuteManagedPositionClose(m_setup.position_ticket, "FRIDAY_EOD")',
+            position_body,
+        )
+        self.assertIn(
+            'ExecuteManagedPositionClose(m_setup.position_ticket, "STAGNATION")',
+            position_body,
+        )
+        self.assertNotIn("m_safety_trade.PositionClose", position_body)
+        self.assertIn("POSITION_SYMBOL", close_body)
+        self.assertIn("POSITION_MAGIC", close_body)
+        self.assertIn("m_last_managed_close_attempt", close_body)
+        self.assertIn("TRADE_RETCODE_DONE", close_body)
+        self.assertIn("TRADE_RETCODE_DONE_PARTIAL", close_body)
+        self.assertIn("MANAGED_CLOSE_FAILED", close_body)
+        self.assertNotIn("ResetSetupToIdle", close_body)
 
     def test_friday_guard_is_independent_from_session_filter(self):
         body = function_body("CheckSession")
@@ -527,7 +553,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         sync_body = function_body("SyncState")
         failure_body = block_after_token(
             sync_body,
-            "if (!RestoreSetupGeometry(dir, geometry_entry, stop, target, setup_time))")
+            "if (!RestoreSetupGeometry(dir, geometry_entry, stop, target,")
         self.assertIn(
             "ServiceUnprotectedPosition(snapshot.position_ticket)", failure_body)
         self.assertNotIn("EnterFault(", failure_body)
@@ -539,6 +565,61 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         self.assertIn("SYMBOL_TRADE_STOPS_LEVEL", body)
         self.assertIn("SYMBOL_TRADE_FREEZE_LEVEL", body)
         self.assertNotIn("m_trade.PositionModify", body)
+
+    def test_break_even_floor_covers_verified_costs_in_account_currency(self):
+        body = function_body("CalculateCostAwareBreakEvenStop")
+        self.assertIn("InpBreakEvenCoversCosts", body)
+        self.assertIn("InpEstimatedRoundTurnCostPerLot * volume", body)
+        self.assertIn("OrderCalcProfit(calc_type", body)
+        self.assertIn("InpBEOffsetTicks", body)
+        self.assertIn("NormalizePriceDirectional", body)
+        self.assertIn(
+            "CalculateCostAwareBreakEvenStop", function_body("CheckAndApplyBreakEven"))
+        self.assertIn(
+            "CalculateCostAwareBreakEvenStop", function_body("CheckAndApplyFibTrailingStop"))
+
+    def test_r_multiple_trailing_uses_immutable_initial_risk_and_strict_retcode(self):
+        body = function_body("CheckAndApplyRiskTrailingStop")
+        self.assertIn("MathAbs(entry - m_setup.stop_price)", body)
+        self.assertIn("InpRiskTrailTriggerR", body)
+        self.assertIn("InpRiskTrailLockR", body)
+        self.assertIn("InpRiskTrailStepR", body)
+        self.assertIn("CalculateCostAwareBreakEvenStop", body)
+        self.assertIn("m_safety_trade.PositionModify", body)
+        self.assertIn("TRADE_RETCODE_DONE", body)
+        position_body = function_body("ProcessStateInPosition")
+        self.assertLess(position_body.index("InpUseRiskTrailingStop"),
+                        position_body.index("InpUseFibTrailingStop"))
+
+    def test_restart_preserves_historical_or_pending_original_stop(self):
+        restore_body = function_body("RestoreSetupGeometry")
+        sync_body = function_body("SyncState")
+        self.assertIn("immutable_original_stop", restore_body)
+        self.assertIn("m_setup.stop_price = original_stop", restore_body)
+        self.assertIn("has_history ? historical_stop : 0.0", sync_body)
+        self.assertIn("setup_time, stop", sync_body)
+
+    def test_shared_portfolio_limits_count_all_symbols_in_magic_range(self):
+        active_body = function_body("CountPortfolioActiveExposures")
+        daily_body = function_body("GetPortfolioDailyStats")
+        guard_body = function_body("CheckPortfolioLimits")
+        floating_body = function_body("CurrentPortfolioFloatingPnL")
+        self.assertIn("PositionsTotal()", active_body)
+        self.assertIn("OrdersTotal()", active_body)
+        self.assertNotIn("POSITION_SYMBOL", active_body)
+        self.assertIn("HistorySelect", daily_body)
+        self.assertIn("DEAL_POSITION_ID", daily_body)
+        self.assertIn("DEAL_COMMISSION", daily_body)
+        self.assertIn("DEAL_SWAP", daily_body)
+        self.assertIn("DEAL_FEE", daily_body)
+        self.assertIn("IsPortfolioMagic", daily_body)
+        self.assertIn("IsPortfolioMagic", floating_body)
+        self.assertIn("InpMaxPortfolioActiveExposures", guard_body)
+        self.assertIn("InpMaxPortfolioDailyTrades", guard_body)
+        self.assertIn("InpMaxPortfolioDailyLossPct", guard_body)
+        self.assertIn("CurrentPortfolioFloatingPnL", guard_body)
+        self.assertIn("CheckPortfolioLimits()", function_body("ProcessStateIdle"))
+        self.assertIn("CheckPortfolioLimits()", function_body("ExecutePendingOrder"))
 
     def test_on_tester_uses_bounded_risk_adjusted_statistics(self):
         body = function_body("OnTester")

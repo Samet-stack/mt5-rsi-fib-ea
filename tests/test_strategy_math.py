@@ -328,6 +328,53 @@ def fib_trailing_stop_sl(p0, range_r, entry, current_price, offset_ticks,
         return None
 
 
+def cost_aware_break_even_stop(entry, volume, cost_per_lot,
+                               gross_profit_per_tick, tick_size,
+                               offset_ticks, is_buy):
+    """Pure equivalent of the smallest tick-aligned stop covering costs."""
+    values = (entry, volume, cost_per_lot, gross_profit_per_tick, tick_size)
+    if (not all(is_finite_number(value) for value in values) or
+            entry <= 0.0 or volume <= 0.0 or cost_per_lot < 0.0 or
+            gross_profit_per_tick <= 0.0 or tick_size <= 0.0 or
+            offset_ticks < 0):
+        raise ValueError("Invalid cost-aware break-even inputs")
+    required_profit = cost_per_lot * volume
+    cost_ticks = math.ceil((required_profit / gross_profit_per_tick) - 1e-12)
+    total_ticks = max(0, cost_ticks) + offset_ticks
+    return (entry + total_ticks * tick_size if is_buy
+            else entry - total_ticks * tick_size)
+
+
+def risk_trailing_stop(entry, initial_stop, current_price, cost_floor,
+                       trigger_r, lock_r, step_r, tick_size, is_buy):
+    """Pure stepped R-multiple trailing rule with a cost-covering floor."""
+    values = (entry, initial_stop, current_price, cost_floor,
+              trigger_r, lock_r, step_r, tick_size)
+    if (not all(is_finite_number(value) for value in values) or
+            entry <= 0.0 or initial_stop <= 0.0 or tick_size <= 0.0 or
+            trigger_r <= 0.0 or lock_r < 0.0 or lock_r >= trigger_r or
+            step_r <= 0.0):
+        raise ValueError("Invalid R trailing inputs")
+    initial_risk = abs(entry - initial_stop)
+    if initial_risk <= 0.0:
+        raise ValueError("Initial risk must be positive")
+    if (is_buy and initial_stop >= entry) or (not is_buy and initial_stop <= entry):
+        raise ValueError("Initial stop is on the wrong side")
+    favorable_r = ((current_price - entry) if is_buy
+                   else (entry - current_price)) / initial_risk
+    if favorable_r < trigger_r:
+        return None
+    completed_steps = math.floor(
+        (favorable_r - trigger_r) / step_r + 1e-9)
+    locked = lock_r + completed_steps * step_r
+    structural = (entry + locked * initial_risk if is_buy
+                  else entry - locked * initial_risk)
+    raw_stop = max(structural, cost_floor) if is_buy else min(structural, cost_floor)
+    if is_buy:
+        return math.floor(raw_stop / tick_size + 1e-12) * tick_size
+    return math.ceil(raw_stop / tick_size - 1e-12) * tick_size
+
+
 def tester_score(trades, net_profit, profit_factor, sharpe, equity_dd_pct,
                  min_trades=40, target_trades=120, max_dd_pct=30.0, pf_cap=5.0,
                  sharpe_cap=5.0):
@@ -775,6 +822,39 @@ class TestOnTesterScore(unittest.TestCase):
 
     def test_drawdown_at_cap_has_zero_score(self):
         self.assertEqual(tester_score(40, 100.0, 2.0, 1.0, 30.0), 0.0)
+
+
+class TestCostAwareRiskManagement(unittest.TestCase):
+    def test_break_even_covers_round_turn_cost_then_adds_offset(self):
+        # $0.07 required, $0.02 gross/tick => 4 cost ticks + 1 offset tick.
+        buy_stop = cost_aware_break_even_stop(
+            2000.0, 0.01, 7.0, 0.02, 0.01, 1, True)
+        sell_stop = cost_aware_break_even_stop(
+            2000.0, 0.01, 7.0, 0.02, 0.01, 1, False)
+        self.assertAlmostEqual(buy_stop, 2000.05)
+        self.assertAlmostEqual(sell_stop, 1999.95)
+
+    def test_r_trailing_is_symmetric_and_steps_monotonically(self):
+        buy_cost_floor = 100.02
+        self.assertIsNone(risk_trailing_stop(
+            100.0, 98.0, 101.99, buy_cost_floor, 1.0, 0.0, 0.5, 0.01, True))
+        self.assertAlmostEqual(risk_trailing_stop(
+            100.0, 98.0, 102.0, buy_cost_floor, 1.0, 0.0, 0.5, 0.01, True), 100.02)
+        self.assertAlmostEqual(risk_trailing_stop(
+            100.0, 98.0, 103.0, buy_cost_floor, 1.0, 0.0, 0.5, 0.01, True), 101.0)
+        self.assertAlmostEqual(risk_trailing_stop(
+            100.0, 102.0, 97.0, 99.98, 1.0, 0.0, 0.5, 0.01, False), 99.0)
+
+    def test_dynamic_volume_changes_with_each_trade_stop(self):
+        equity = 3000.0
+        risk_pct = 0.25
+        tight_stop_volume = calculate_volume(
+            equity, risk_pct, 100.0, 0.01, 0.01, 100.0)
+        wide_stop_volume = calculate_volume(
+            equity, risk_pct, 300.0, 0.01, 0.01, 100.0)
+        self.assertEqual(tight_stop_volume, 0.07)
+        self.assertEqual(wide_stop_volume, 0.02)
+        self.assertGreater(tight_stop_volume, wide_stop_volume)
 
 
 class TestFibonacciTrailingStop(unittest.TestCase):

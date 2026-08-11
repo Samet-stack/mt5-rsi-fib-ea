@@ -7,7 +7,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026"
 #property link      ""
-#property version   "4.30"
+#property version   "4.40"
 #property description "RSI/Fibonacci research EA for MT5 (strict demo/tester only)"
 #property strict
 
@@ -58,6 +58,7 @@ enum ENUM_FUNNEL_EVENT
    FUNNEL_REJECT_VOLATILITY,
    FUNNEL_REJECT_NEWS,
    FUNNEL_REJECT_DAILY_RISK,
+   FUNNEL_REJECT_PORTFOLIO,
    FUNNEL_REJECT_SPREAD,
    FUNNEL_REJECT_SESSION,
    FUNNEL_REJECT_CONTRACT,
@@ -103,6 +104,11 @@ input double   InpRiskPercent           = 0.25;        // Risk per trade (% of E
 input double   InpMaxDailyLossPct       = 1.0;         // Max Daily Loss/Drawdown (% of Equity)
 input int      InpMaxDailyTrades        = 2;           // Max new positions per day (0 = disabled)
 input int      InpMaxConsecutiveLosses  = 2;           // Max consecutive losses per day (0 = disabled)
+input ulong    InpPortfolioMagicMin     = 0;           // Shared strategy magic range lower bound (0 = disabled)
+input ulong    InpPortfolioMagicMax     = 0;           // Shared strategy magic range upper bound (0 = disabled)
+input int      InpMaxPortfolioActiveExposures = 0;     // Max positions + pending orders in shared range (0 = disabled)
+input int      InpMaxPortfolioDailyTrades = 0;         // Max new positions/day in shared range (0 = disabled)
+input double   InpMaxPortfolioDailyLossPct = 0.0;      // Max shared realized + floating daily loss (0 = disabled)
 input int      InpMaxSpreadPoints       = 0;           // Max allowed spread in points (0 = disabled)
 input double   InpMaxSpreadRiskPct      = 25.0;        // Max spread as % of Entry-to-SL distance (0 = disabled)
 input bool     InpCloseUnprotectedPosition = true;     // Close EA position if broker SL/TP is missing
@@ -223,7 +229,12 @@ input group "=== Position Management ==="
 input bool     InpUseBreakEven          = false;       // Enable structural break-even management
 input double   InpBETriggerFibRatio     = 1.00;        // Fib ratio that triggers break-even
 input int      InpBEOffsetTicks         = 1;           // Favorable offset from entry in trade ticks
+input bool     InpBreakEvenCoversCosts  = true;        // Move beyond verified round-turn costs before calling it BE
 input bool     InpUseFibTrailingStop    = false;       // Enable multi-level Fibonacci trailing stop
+input bool     InpUseRiskTrailingStop   = false;       // Enable symbol-neutral trailing in initial-risk multiples
+input double   InpRiskTrailTriggerR     = 1.00;        // First activation threshold in R
+input double   InpRiskTrailLockR        = 0.00;        // Locked R at first activation (cost floor still applies)
+input double   InpRiskTrailStepR        = 0.50;        // Additional R required for each stop step
 
 //--- Visualization & Logging
 input group "=== Display & Diagnostics ==="
@@ -339,6 +350,7 @@ string      m_obj_prefix = "";
 ENUM_TIMEFRAMES m_timeframe = PERIOD_CURRENT;
 datetime    m_last_emergency_close_attempt = 0;
 datetime    m_last_lifecycle_close_attempt = 0;
+datetime    m_last_managed_close_attempt = 0;
 datetime    m_last_cancel_attempt = 0;
 bool        m_sync_required = true;
 ulong       m_last_broker_scan_ms = 0;
@@ -378,6 +390,7 @@ string FunnelEventName(const ENUM_FUNNEL_EVENT event)
       case FUNNEL_REJECT_VOLATILITY: return "REJECT_VOLATILITY";
       case FUNNEL_REJECT_NEWS: return "REJECT_NEWS";
       case FUNNEL_REJECT_DAILY_RISK: return "REJECT_DAILY_RISK";
+      case FUNNEL_REJECT_PORTFOLIO: return "REJECT_PORTFOLIO";
       case FUNNEL_REJECT_SPREAD: return "REJECT_SPREAD";
       case FUNNEL_REJECT_SESSION: return "REJECT_SESSION";
       case FUNNEL_REJECT_CONTRACT: return "REJECT_CONTRACT";
@@ -767,6 +780,8 @@ void ProcessStateIdle()
    { RecordFunnel(FUNNEL_REJECT_NEWS); return; }
    if (!CheckRiskGuards())
    { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); return; }
+   if (!CheckPortfolioLimits())
+   { RecordFunnel(FUNNEL_REJECT_PORTFOLIO); return; }
    if (!CheckSpread())
    { RecordFunnel(FUNNEL_REJECT_SPREAD); return; }
    if (!CheckSession())
@@ -956,6 +971,8 @@ void ProcessStateWaitingForAnchor()
    // Re-verify Risk Guards before ordering
    if (!CheckRiskGuards())
    { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); ResetSetupToIdle(); return; }
+   if (!CheckPortfolioLimits())
+   { RecordFunnel(FUNNEL_REJECT_PORTFOLIO); ResetSetupToIdle(); return; }
    if (!CheckSpread())
    { RecordFunnel(FUNNEL_REJECT_SPREAD); ResetSetupToIdle(); return; }
    if (!CheckSession())
@@ -1089,14 +1106,16 @@ void ProcessStateInPosition(bool is_new_bar)
       if (dt.day_of_week == 5 && dt.hour >= InpFridayCloseHour)
       {
          PrintFormat("FRIDAY EOD: [RSIFibEA] Closing position #%llu before weekend close.", m_setup.position_ticket);
-         m_safety_trade.PositionClose(m_setup.position_ticket);
-         m_sync_required = true;
+         ExecuteManagedPositionClose(m_setup.position_ticket, "FRIDAY_EOD");
          return;
       }
    }
 
    // Stagnation / Time-Decay Exit
-   if (is_new_bar && InpUseStagnationExit && m_setup.position_ticket > 0)
+   // Once the threshold is reached this runs on every tick. Failed broker
+   // requests are throttled by ExecuteManagedPositionClose and retried instead
+   // of being silently deferred until the next bar.
+   if (InpUseStagnationExit && m_setup.position_ticket > 0)
    {
       if (PositionSelectByTicket(m_setup.position_ticket))
       {
@@ -1109,8 +1128,7 @@ void ProcessStateInPosition(bool is_new_bar)
             {
                PrintFormat("STAGNATION: [RSIFibEA] Position #%llu held for %d bars without momentum. Closing at market.",
                            m_setup.position_ticket, bars_held);
-               m_safety_trade.PositionClose(m_setup.position_ticket);
-               m_sync_required = true;
+               ExecuteManagedPositionClose(m_setup.position_ticket, "STAGNATION");
                return;
             }
          }
@@ -1158,21 +1176,26 @@ void ProcessStateInPosition(bool is_new_bar)
                   if (InpPartialLockBE && PositionSelectByTicket(m_setup.position_ticket))
                   {
                      double entry_px = PositionGetDouble(POSITION_PRICE_OPEN);
-                     double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-                     double desired_sl = (m_setup.dir == SIGNAL_BUY)
-                                         ? NormalizePriceDirectional(entry_px + InpBEOffsetTicks * tick_size, -1)
-                                         : NormalizePriceDirectional(entry_px - InpBEOffsetTicks * tick_size, 1);
+                     double remaining_position_volume = PositionGetDouble(POSITION_VOLUME);
+                     double desired_sl = 0.0;
                      double cur_tp = PositionGetDouble(POSITION_TP);
-                     bool modified = m_safety_trade.PositionModify(
-                        m_setup.position_ticket, desired_sl, cur_tp);
+                     bool be_calculated = CalculateCostAwareBreakEvenStop(
+                        m_setup.dir, entry_px, remaining_position_volume, desired_sl);
+                     bool modified = false;
+                     if (be_calculated)
+                        modified = m_safety_trade.PositionModify(
+                           m_setup.position_ticket, desired_sl, cur_tp);
                      uint modify_retcode = m_safety_trade.ResultRetcode();
-                     if (modified && (modify_retcode == TRADE_RETCODE_DONE ||
-                                      modify_retcode == TRADE_RETCODE_NO_CHANGES))
+                     if (be_calculated && modified &&
+                         (modify_retcode == TRADE_RETCODE_DONE ||
+                          modify_retcode == TRADE_RETCODE_NO_CHANGES))
                         PrintFormat("PARTIAL_BE_CONFIRMED|ticket=%llu|sl=%.5f",
                                     m_setup.position_ticket, desired_sl);
                      else
-                        PrintFormat("PARTIAL_BE_FAILED|ticket=%llu|sl=%.5f|retcode=%u|description=%s",
-                                    m_setup.position_ticket, desired_sl, modify_retcode,
+                        PrintFormat("PARTIAL_BE_FAILED|ticket=%llu|calculated=%s|sl=%.5f|retcode=%u|description=%s",
+                                    m_setup.position_ticket,
+                                    be_calculated ? "true" : "false",
+                                    desired_sl, modify_retcode,
                                     m_safety_trade.ResultRetcodeDescription());
                   }
                }
@@ -1186,7 +1209,9 @@ void ProcessStateInPosition(bool is_new_bar)
       }
    }
 
-   if (InpUseFibTrailingStop)
+   if (InpUseRiskTrailingStop)
+      CheckAndApplyRiskTrailingStop();
+   else if (InpUseFibTrailingStop)
       CheckAndApplyFibTrailingStop();
    else if (InpUseBreakEven)
       CheckAndApplyBreakEven();
@@ -1637,6 +1662,8 @@ void ExecutePendingOrder(ENUM_ORDER_TYPE order_type, double vol)
 
    if (!CheckRiskGuards())
    { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); ResetSetupToIdle(); return; }
+   if (!CheckPortfolioLimits())
+   { RecordFunnel(FUNNEL_REJECT_PORTFOLIO); ResetSetupToIdle(); return; }
    if (!CheckSpread())
    { RecordFunnel(FUNNEL_REJECT_SPREAD); ResetSetupToIdle(); return; }
    if (!CheckSetupSpread())
@@ -1854,6 +1881,7 @@ void ResetSetupToIdle()
    m_last_partial_attempt = 0;
    m_last_emergency_close_attempt = 0;
    m_last_lifecycle_close_attempt = 0;
+   m_last_managed_close_attempt = 0;
    RemoveChartObjects();
 }
 
@@ -1962,9 +1990,22 @@ bool ValidateInputs()
       return false;
    }
    if (!MathIsValidNumber(InpMaxDailyLossPct) || InpMaxDailyLossPct < 0.0 || InpMaxDailyLossPct > 100.0 ||
-       InpMaxDailyTrades < 0 || InpMaxConsecutiveLosses < 0)
+       InpMaxDailyTrades < 0 || InpMaxConsecutiveLosses < 0 ||
+       InpMaxPortfolioActiveExposures < 0 || InpMaxPortfolioDailyTrades < 0 ||
+       !MathIsValidNumber(InpMaxPortfolioDailyLossPct) ||
+       InpMaxPortfolioDailyLossPct < 0.0 || InpMaxPortfolioDailyLossPct > 100.0)
    {
       Print("VALIDATION ERROR: Daily guard parameters are outside their valid ranges.");
+      return false;
+   }
+   bool portfolio_guard_enabled = (InpMaxPortfolioActiveExposures > 0 ||
+                                   InpMaxPortfolioDailyTrades > 0 ||
+                                   InpMaxPortfolioDailyLossPct > 0.0);
+   if (portfolio_guard_enabled &&
+       (InpPortfolioMagicMin == 0 || InpPortfolioMagicMax < InpPortfolioMagicMin ||
+        InpMagicNumber < InpPortfolioMagicMin || InpMagicNumber > InpPortfolioMagicMax))
+   {
+      Print("VALIDATION ERROR: Enabled portfolio guards require a valid magic range containing InpMagicNumber.");
       return false;
    }
    if (InpMaxSpreadPoints < 0 || !MathIsValidNumber(InpMaxSpreadRiskPct) || InpMaxSpreadRiskPct < 0.0)
@@ -2039,6 +2080,21 @@ bool ValidateInputs()
        InpBETriggerFibRatio > InpTargetRatio || InpBEOffsetTicks < 0)
    {
       Print("VALIDATION ERROR: Break-even trigger/offset values are invalid.");
+      return false;
+   }
+   if (InpUseFibTrailingStop && InpUseRiskTrailingStop)
+   {
+      Print("VALIDATION ERROR: Fibonacci and R-multiple trailing modes are mutually exclusive.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpRiskTrailTriggerR) ||
+       !MathIsValidNumber(InpRiskTrailLockR) ||
+       !MathIsValidNumber(InpRiskTrailStepR) ||
+       InpRiskTrailTriggerR <= 0.0 || InpRiskTrailTriggerR > 100.0 ||
+       InpRiskTrailLockR < 0.0 || InpRiskTrailLockR >= InpRiskTrailTriggerR ||
+       InpRiskTrailStepR <= 0.0 || InpRiskTrailStepR > 100.0)
+   {
+      Print("VALIDATION ERROR: R-multiple trailing parameters are invalid.");
       return false;
    }
    if (!MathIsValidNumber(InpMinSLATRMultiple) || InpMinSLATRMultiple <= 0.0 || InpMinSLATRMultiple > 100.0)
@@ -2334,6 +2390,184 @@ bool CheckDailyLimits()
             PrintFormat("GUARD REJECT: Max daily equity loss reached (realized %.2f, floating %.2f, limit %.2f)",
                         daily_pnl, floating_pnl, -max_loss_money);
          return false;
+      }
+   }
+
+   return true;
+}
+
+bool PortfolioGuardsEnabled()
+{
+   return (InpMaxPortfolioActiveExposures > 0 ||
+           InpMaxPortfolioDailyTrades > 0 ||
+           InpMaxPortfolioDailyLossPct > 0.0);
+}
+
+bool IsPortfolioMagic(const long magic)
+{
+   if (!PortfolioGuardsEnabled() || magic <= 0)
+      return false;
+   ulong value = (ulong)magic;
+   return (value >= InpPortfolioMagicMin && value <= InpPortfolioMagicMax);
+}
+
+bool CountPortfolioActiveExposures(int &out_count)
+{
+   out_count = 0;
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket > 0 && IsPortfolioMagic(PositionGetInteger(POSITION_MAGIC)))
+         out_count++;
+   }
+
+   for (int i = 0; i < OrdersTotal(); i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if (ticket > 0 && IsPortfolioMagic(OrderGetInteger(ORDER_MAGIC)))
+         out_count++;
+   }
+   return true;
+}
+
+bool GetPortfolioDailyStats(int &out_count, double &out_realized_pnl)
+{
+   out_count = 0;
+   out_realized_pnl = 0.0;
+   MqlDateTime dt;
+   if (!TimeToStruct(TimeCurrent(), dt))
+      return false;
+   dt.hour = 0;
+   dt.min = 0;
+   dt.sec = 0;
+   datetime midnight_today = StructToTime(dt);
+   if (midnight_today <= 0 || !HistorySelect(midnight_today, TimeCurrent() + 1))
+      return false;
+
+   long position_ids[];
+   int position_count = 0;
+   int total_deals = HistoryDealsTotal();
+   for (int i = 0; i < total_deals; i++)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if (ticket == 0 ||
+          !IsPortfolioMagic(HistoryDealGetInteger(ticket, DEAL_MAGIC)))
+         continue;
+
+      out_realized_pnl += HistoryDealGetDouble(ticket, DEAL_PROFIT) +
+                          HistoryDealGetDouble(ticket, DEAL_COMMISSION) +
+                          HistoryDealGetDouble(ticket, DEAL_SWAP) +
+                          HistoryDealGetDouble(ticket, DEAL_FEE);
+
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT)
+         continue;
+
+      long position_id = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+      if (position_id <= 0)
+         return false;
+
+      bool already_counted = false;
+      for (int p = 0; p < position_count; p++)
+      {
+         if (position_ids[p] == position_id)
+         {
+            already_counted = true;
+            break;
+         }
+      }
+      if (already_counted)
+         continue;
+
+      if (ArrayResize(position_ids, position_count + 1, 16) != position_count + 1)
+         return false;
+      position_ids[position_count] = position_id;
+      position_count++;
+   }
+
+   out_count = position_count;
+   return true;
+}
+
+double CurrentPortfolioFloatingPnL()
+{
+   double pnl = 0.0;
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || !IsPortfolioMagic(PositionGetInteger(POSITION_MAGIC)))
+         continue;
+      pnl += PositionGetDouble(POSITION_PROFIT) +
+             PositionGetDouble(POSITION_SWAP);
+   }
+   return pnl;
+}
+
+bool CheckPortfolioLimits()
+{
+   if (!PortfolioGuardsEnabled())
+      return true;
+
+   if (InpMaxPortfolioActiveExposures > 0)
+   {
+      int active_exposures = 0;
+      if (!CountPortfolioActiveExposures(active_exposures))
+      {
+         Print("GUARD REJECT: Shared portfolio exposure could not be counted safely.");
+         return false;
+      }
+      if (active_exposures >= InpMaxPortfolioActiveExposures)
+      {
+         if (InpVerboseLog)
+            PrintFormat("GUARD REJECT: Shared portfolio exposure limit reached (%d >= %d).",
+                        active_exposures, InpMaxPortfolioActiveExposures);
+         return false;
+      }
+   }
+
+   if (InpMaxPortfolioDailyTrades > 0 || InpMaxPortfolioDailyLossPct > 0.0)
+   {
+      int daily_trades = 0;
+      double realized_pnl = 0.0;
+      if (!GetPortfolioDailyStats(daily_trades, realized_pnl))
+      {
+         Print("GUARD REJECT: Shared portfolio daily history could not be counted safely.");
+         return false;
+      }
+      if (InpMaxPortfolioDailyTrades > 0 &&
+          daily_trades >= InpMaxPortfolioDailyTrades)
+      {
+         if (InpVerboseLog)
+            PrintFormat("GUARD REJECT: Shared portfolio daily trade limit reached (%d >= %d).",
+                        daily_trades, InpMaxPortfolioDailyTrades);
+         return false;
+      }
+
+      if (InpMaxPortfolioDailyLossPct > 0.0)
+      {
+         double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+         double floating_pnl = CurrentPortfolioFloatingPnL();
+         double portfolio_pnl_today = realized_pnl + floating_pnl;
+         double estimated_day_start_equity = equity - portfolio_pnl_today;
+         if (estimated_day_start_equity <= 0.0)
+            estimated_day_start_equity = AccountInfoDouble(ACCOUNT_BALANCE) -
+                                         realized_pnl;
+         if (equity <= 0.0 || estimated_day_start_equity <= 0.0 ||
+             !MathIsValidNumber(portfolio_pnl_today))
+         {
+            Print("GUARD REJECT: Shared portfolio equity state is invalid.");
+            return false;
+         }
+
+         double max_loss_money = estimated_day_start_equity *
+                                 InpMaxPortfolioDailyLossPct / 100.0;
+         if (portfolio_pnl_today <= -max_loss_money)
+         {
+            if (InpVerboseLog)
+               PrintFormat("GUARD REJECT: Shared portfolio daily loss reached (realized %.2f, floating %.2f, limit %.2f).",
+                           realized_pnl, floating_pnl, -max_loss_money);
+            return false;
+         }
       }
    }
 
@@ -3346,6 +3580,54 @@ bool ExecuteManagedPartialClose(const ulong ticket, const double close_volume)
    return confirmed;
 }
 
+bool ExecuteManagedPositionClose(const ulong ticket, const string reason)
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked managed position close");
+      return false;
+   }
+   if (ticket == 0)
+      return false;
+
+   if (!PositionSelectByTicket(ticket))
+   {
+      // The broker may already have closed the position between ticks.
+      m_sync_required = true;
+      return true;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+   {
+      EnterFault(StringFormat("Managed close refused foreign position #%llu", ticket));
+      return false;
+   }
+
+   if (m_last_managed_close_attempt != 0 &&
+       TimeCurrent() - m_last_managed_close_attempt < 10)
+      return false;
+   m_last_managed_close_attempt = TimeCurrent();
+
+   ResetLastError();
+   bool requested = m_safety_trade.PositionClose(ticket);
+   uint retcode = m_safety_trade.ResultRetcode();
+   bool confirmed = requested &&
+                    (retcode == TRADE_RETCODE_DONE ||
+                     retcode == TRADE_RETCODE_DONE_PARTIAL);
+   if (confirmed)
+   {
+      m_sync_required = true;
+      PrintFormat("MANAGED_CLOSE_CONFIRMED|reason=%s|ticket=%llu|retcode=%u",
+                  reason, ticket, retcode);
+      return true;
+   }
+
+   PrintFormat("MANAGED_CLOSE_FAILED|reason=%s|ticket=%llu|retcode=%u|description=%s|error=%d|retry=true",
+               reason, ticket, retcode,
+               m_safety_trade.ResultRetcodeDescription(), GetLastError());
+   return false;
+}
+
 double NormalizeVolume(double raw_vol)
 {
    double step_vol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
@@ -3570,7 +3852,9 @@ bool FindOriginalLimitGeometry(const long position_identifier,
    return false;
 }
 
-bool RestoreSetupGeometry(ENUM_SIGNAL_DIR dir, double entry, double stop, double target, datetime setup_time)
+bool RestoreSetupGeometry(ENUM_SIGNAL_DIR dir, double entry, double stop,
+                          double target, datetime setup_time,
+                          double immutable_original_stop)
 {
    if (dir == SIGNAL_NONE || entry <= 0.0 || stop <= 0.0 || target <= 0.0)
       return false;
@@ -3590,12 +3874,18 @@ bool RestoreSetupGeometry(ENUM_SIGNAL_DIR dir, double entry, double stop, double
    double restored_p0 = (dir == SIGNAL_BUY)
                         ? entry - InpEntryRatio * restored_range
                         : entry + InpEntryRatio * restored_range;
-   double original_stop = (dir == SIGNAL_BUY)
-                          ? NormalizePriceDirectional(restored_p0 + InpStopRatio * restored_range, -1)
-                          : NormalizePriceDirectional(restored_p0 - InpStopRatio * restored_range, 1);
+   double ratio_stop = (dir == SIGNAL_BUY)
+                       ? NormalizePriceDirectional(restored_p0 + InpStopRatio * restored_range, -1)
+                       : NormalizePriceDirectional(restored_p0 - InpStopRatio * restored_range, 1);
+   double original_stop = (immutable_original_stop > 0.0)
+                          ? immutable_original_stop : ratio_stop;
    double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    double tolerance = MathMax(tick_size, SymbolInfoDouble(_Symbol, SYMBOL_POINT)) * 2.0;
-   if (original_stop <= 0.0 || tolerance <= 0.0)
+   if (ratio_stop <= 0.0 || original_stop <= 0.0 || tolerance <= 0.0)
+      return false;
+
+   if ((dir == SIGNAL_BUY && (original_stop >= entry || original_stop >= target)) ||
+       (dir == SIGNAL_SELL && (original_stop <= entry || original_stop <= target)))
       return false;
 
    // A moved SL is valid only when it is at least as protective as the original.
@@ -3629,6 +3919,92 @@ bool RestoreSetupGeometry(ENUM_SIGNAL_DIR dir, double entry, double stop, double
    return true;
 }
 
+bool CalculateCostAwareBreakEvenStop(const ENUM_SIGNAL_DIR dir,
+                                     const double entry,
+                                     const double volume,
+                                     double &out_stop)
+{
+   out_stop = 0.0;
+   if ((dir != SIGNAL_BUY && dir != SIGNAL_SELL) ||
+       entry <= 0.0 || volume <= 0.0)
+      return false;
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if (tick_size <= 0.0 || !MathIsValidNumber(tick_size))
+      return false;
+
+   double required_profit = InpBreakEvenCoversCosts
+                            ? InpEstimatedRoundTurnCostPerLot * volume
+                            : 0.0;
+   if (!MathIsValidNumber(required_profit) || required_profit < 0.0)
+      return false;
+
+   ENUM_ORDER_TYPE calc_type = (dir == SIGNAL_BUY)
+                               ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   long cost_ticks = 0;
+   if (required_profit > 0.0)
+   {
+      const long max_search_ticks = 1000000L;
+      long low_ticks = 0;
+      long high_ticks = 1;
+      bool upper_bound_found = false;
+
+      while (high_ticks <= max_search_ticks)
+      {
+         double candidate = (dir == SIGNAL_BUY)
+                            ? entry + (double)high_ticks * tick_size
+                            : entry - (double)high_ticks * tick_size;
+         double gross_profit = 0.0;
+         if (candidate <= 0.0 ||
+             !OrderCalcProfit(calc_type, _Symbol, volume,
+                              entry, candidate, gross_profit) ||
+             !MathIsValidNumber(gross_profit))
+            return false;
+
+         if (gross_profit + 0.0000001 >= required_profit)
+         {
+            upper_bound_found = true;
+            break;
+         }
+
+         low_ticks = high_ticks;
+         if (high_ticks > max_search_ticks / 2)
+            break;
+         high_ticks *= 2;
+      }
+
+      if (!upper_bound_found)
+         return false;
+
+      while (low_ticks + 1 < high_ticks)
+      {
+         long middle_ticks = low_ticks + (high_ticks - low_ticks) / 2;
+         double candidate = (dir == SIGNAL_BUY)
+                            ? entry + (double)middle_ticks * tick_size
+                            : entry - (double)middle_ticks * tick_size;
+         double gross_profit = 0.0;
+         if (candidate <= 0.0 ||
+             !OrderCalcProfit(calc_type, _Symbol, volume,
+                              entry, candidate, gross_profit) ||
+             !MathIsValidNumber(gross_profit))
+            return false;
+         if (gross_profit + 0.0000001 >= required_profit)
+            high_ticks = middle_ticks;
+         else
+            low_ticks = middle_ticks;
+      }
+      cost_ticks = high_ticks;
+   }
+
+   long total_ticks = cost_ticks + (long)InpBEOffsetTicks;
+   double raw_stop = (dir == SIGNAL_BUY)
+                     ? entry + (double)total_ticks * tick_size
+                     : entry - (double)total_ticks * tick_size;
+   out_stop = NormalizePriceDirectional(raw_stop,
+                                        dir == SIGNAL_BUY ? -1 : 1);
+   return (out_stop > 0.0 && MathIsValidNumber(out_stop));
+}
+
 bool CheckAndApplyBreakEven()
 {
    if (!InpUseBreakEven || m_setup.position_ticket == 0)
@@ -3656,6 +4032,7 @@ bool CheckAndApplyBreakEven()
    ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
    double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double volume = PositionGetDouble(POSITION_VOLUME);
    double current_sl = PositionGetDouble(POSITION_SL);
    double current_tp = PositionGetDouble(POSITION_TP);
    if (entry <= 0.0 || current_sl <= 0.0 || current_tp <= 0.0 ||
@@ -3678,9 +4055,9 @@ bool CheckAndApplyBreakEven()
    if (tick_size <= 0.0 || point <= 0.0)
       return false;
 
-   double desired_sl = (dir == SIGNAL_BUY)
-                       ? NormalizePriceDirectional(entry + InpBEOffsetTicks * tick_size, -1)
-                       : NormalizePriceDirectional(entry - InpBEOffsetTicks * tick_size, 1);
+   double desired_sl = 0.0;
+   if (!CalculateCostAwareBreakEvenStop(dir, entry, volume, desired_sl))
+      return false;
    double tolerance = 0.5 * tick_size;
    if (desired_sl <= 0.0)
       return false;
@@ -3715,6 +4092,108 @@ bool CheckAndApplyBreakEven()
    return false;
 }
 
+bool CheckAndApplyRiskTrailingStop()
+{
+   if (!InpUseRiskTrailingStop || m_setup.position_ticket == 0)
+      return true;
+
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked R-multiple trailing modification");
+      return false;
+   }
+
+   datetime now = TimeCurrent();
+   if (m_last_break_even_attempt != 0 && now - m_last_break_even_attempt < 1)
+      return true;
+
+   if (!PositionSelectByTicket(m_setup.position_ticket))
+   {
+      m_sync_required = true;
+      return false;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return false;
+
+   ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   double current_sl = PositionGetDouble(POSITION_SL);
+   double current_tp = PositionGetDouble(POSITION_TP);
+   double initial_risk = MathAbs(entry - m_setup.stop_price);
+   if (entry <= 0.0 || volume <= 0.0 || current_sl <= 0.0 ||
+       current_tp <= 0.0 || initial_risk <= 0.0 || m_setup.dir != dir ||
+       (dir == SIGNAL_BUY && m_setup.stop_price >= entry) ||
+       (dir == SIGNAL_SELL && m_setup.stop_price <= entry))
+      return false;
+
+   MqlTick tick;
+   if (!SymbolInfoTick(_Symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return false;
+
+   double favorable_distance = (dir == SIGNAL_BUY)
+                               ? tick.bid - entry : entry - tick.ask;
+   double favorable_r = favorable_distance / initial_risk;
+   if (!MathIsValidNumber(favorable_r) || favorable_r < InpRiskTrailTriggerR)
+      return true;
+
+   double completed_steps = MathFloor(
+      (favorable_r - InpRiskTrailTriggerR) / InpRiskTrailStepR + 0.000000001);
+   double locked_r = InpRiskTrailLockR + completed_steps * InpRiskTrailStepR;
+   double desired_sl = (dir == SIGNAL_BUY)
+                       ? entry + locked_r * initial_risk
+                       : entry - locked_r * initial_risk;
+
+   double cost_floor_sl = 0.0;
+   if (!CalculateCostAwareBreakEvenStop(dir, entry, volume, cost_floor_sl))
+      return false;
+   if (dir == SIGNAL_BUY)
+      desired_sl = MathMax(desired_sl, cost_floor_sl);
+   else
+      desired_sl = MathMin(desired_sl, cost_floor_sl);
+   desired_sl = NormalizePriceDirectional(desired_sl,
+                                          dir == SIGNAL_BUY ? -1 : 1);
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (desired_sl <= 0.0 || tick_size <= 0.0 || point <= 0.0)
+      return false;
+
+   double tolerance = 0.5 * tick_size;
+   if ((dir == SIGNAL_BUY && current_sl >= desired_sl - tolerance) ||
+       (dir == SIGNAL_SELL && current_sl <= desired_sl + tolerance))
+      return true;
+
+   long stops_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long freeze_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double min_distance = (double)MathMax(stops_points, freeze_points) * point;
+   if ((dir == SIGNAL_BUY && tick.bid - desired_sl < min_distance) ||
+       (dir == SIGNAL_SELL && desired_sl - tick.ask < min_distance))
+      return true;
+
+   m_last_break_even_attempt = now;
+   bool modified = m_safety_trade.PositionModify(m_setup.position_ticket,
+                                                  desired_sl, current_tp);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (modified &&
+       (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_NO_CHANGES))
+   {
+      m_sync_required = true;
+      m_last_status = "R-multiple trailing active";
+      PrintFormat("MANAGEMENT: [RSIFibEA] Position #%llu SL trailed to %.5f (market %.2fR, locked %.2fR).",
+                  m_setup.position_ticket, desired_sl, favorable_r, locked_r);
+      return true;
+   }
+
+   m_last_status = "R-multiple trailing retry pending";
+   PrintFormat("WARNING: [RSIFibEA] R-multiple trailing failed for #%llu. Retcode: %u (%s).",
+               m_setup.position_ticket, retcode,
+               m_safety_trade.ResultRetcodeDescription());
+   return false;
+}
+
 bool CheckAndApplyFibTrailingStop()
 {
    if (!InpUseFibTrailingStop || m_setup.position_ticket == 0)
@@ -3742,6 +4221,7 @@ bool CheckAndApplyFibTrailingStop()
    ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
    double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double volume = PositionGetDouble(POSITION_VOLUME);
    double current_sl = PositionGetDouble(POSITION_SL);
    double current_tp = PositionGetDouble(POSITION_TP);
    if (entry <= 0.0 || current_sl <= 0.0 || current_tp <= 0.0 ||
@@ -3817,6 +4297,16 @@ bool CheckAndApplyFibTrailingStop()
 
    if (desired_sl <= 0.0)
       return true;
+
+   double cost_floor_sl = 0.0;
+   if (!CalculateCostAwareBreakEvenStop(dir, entry, volume, cost_floor_sl))
+      return false;
+   if (dir == SIGNAL_BUY)
+      desired_sl = MathMax(desired_sl, cost_floor_sl);
+   else
+      desired_sl = MathMin(desired_sl, cost_floor_sl);
+   desired_sl = NormalizePriceDirectional(desired_sl,
+                                          dir == SIGNAL_BUY ? -1 : 1);
 
    double tolerance = 0.5 * tick_size;
 
@@ -4141,7 +4631,9 @@ void SyncState()
                return;
             }
          }
-         if (!RestoreSetupGeometry(dir, geometry_entry, stop, target, setup_time))
+         double immutable_stop = has_history ? historical_stop : 0.0;
+         if (!RestoreSetupGeometry(dir, geometry_entry, stop, target,
+                                   setup_time, immutable_stop))
          {
             // With no trustworthy geometry we cannot prove that the live stop
             // still respects the originally sized risk. Treat the position as
@@ -4200,7 +4692,7 @@ void SyncState()
       double stop = OrderGetDouble(ORDER_SL);
       double target = OrderGetDouble(ORDER_TP);
 
-      if (!RestoreSetupGeometry(dir, entry, stop, target, setup_time))
+      if (!RestoreSetupGeometry(dir, entry, stop, target, setup_time, stop))
       {
          EnterFault(StringFormat("Pending order #%llu geometry cannot be restored",
                                  snapshot.limit_ticket));
@@ -4274,7 +4766,7 @@ void UpdateDashboard()
    string status = (m_state == STATE_FAULT && m_fault_reason != "")
                    ? m_fault_reason : m_last_status;
 
-   Comment(StringFormat("RSI Fib EA v4.30 Research | DEMO GUARD: %s\n"
+   Comment(StringFormat("RSI Fib EA v4.40 Research | DEMO GUARD: %s\n"
                         "State: %s | Direction: %s | Protection: %s\n"
                         "Spread: %.1f pts | Order: %llu | Position: %llu\n"
                         "P0 %.5f | P1 %.5f | Entry %.5f | SL %.5f | TP %.5f | TP1 %.5f\n"
