@@ -4,6 +4,7 @@ Comprehensive 12-Month Deep Loss Autopsy for RSIFibEA on Gold M15.
 Extracts every losing trade over 1 full year and analyzes hour, day, direction, duration, and root cause.
 """
 
+import argparse
 import sys
 from pathlib import Path
 from collections import defaultdict
@@ -131,5 +132,9 @@ def deep_autopsy(report_path: Path):
         print(f"{idx:<3} {l['type']:<5} {l['in_time']:<17} {l['in_price']:<10.2f} {l['out_time']:<17} {l['out_price']:<10.2f} {l['duration_min']:<12.0f} {l['profit']:>+8.2f} $")
 
 if __name__ == "__main__":
-    report = Path("/mnt/c/Users/samet/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/opt_rep_V35_Supreme_12M.htm")
-    deep_autopsy(report)
+    parser = argparse.ArgumentParser(
+        description="Analyze losing trades from one explicit MT5 HTML report."
+    )
+    parser.add_argument("report", type=Path, help="Path to an MT5 HTML report")
+    arguments = parser.parse_args()
+    deep_autopsy(arguments.report)

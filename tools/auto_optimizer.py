@@ -14,15 +14,44 @@ from typing import Dict, Any, List
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from tools.parse_mt5_report import parse_report
 
-MT5_TERMINAL = "/mnt/c/Program Files/MetaTrader 5/terminal64.exe"
-MT5_APPDATA = Path("/mnt/c/Users/samet/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075")
-LOCAL_INI_DIR = Path("/mnt/c/Users/samet/AppData/Local/RSIFibEA")
-PROFILES_TESTER_DIR = MT5_APPDATA / "MQL5/Profiles/Tester"
+MT5_TERMINAL = Path(os.environ.get(
+    "RSIFIB_MT5_TERMINAL",
+    "/mnt/c/Program Files/MetaTrader 5/terminal64.exe",
+))
+
+
+def _required_directory(variable: str, *, create: bool = False) -> Path:
+    """Return a user-supplied MT5 path without embedding local account data."""
+    value = os.environ.get(variable, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{variable} is required; see CONTRIBUTING.md for the local MT5 setup"
+        )
+    path = Path(value).expanduser()
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    elif not path.is_dir():
+        raise RuntimeError(f"{variable} is not a directory: {path}")
+    return path
+
+
+def _windows_path(path: Path) -> str:
+    """Convert a WSL path for the Windows terminal /config argument."""
+    result = subprocess.run(
+        ["wslpath", "-w", str(path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    converted = result.stdout.strip()
+    if not converted:
+        raise RuntimeError(f"wslpath returned an empty path for {path}")
+    return converted
 
 BASE_TEMPLATE = {
     "InpDemoOnly": "true",
     "InpMagicNumber": "20260806",
-    "InpRiskPercent": "1.25",
+    "InpRiskPercent": "0.10",
     "InpMaxDailyLossPct": "5.0",
     "InpMaxDailyTrades": "5",
     "InpMaxConsecutiveLosses": "3",
@@ -30,7 +59,7 @@ BASE_TEMPLATE = {
     "InpMaxSpreadRiskPct": "25.0",
     "InpCloseUnprotectedPosition": "true",
     "InpStateWatchdogMs": "1000",
-    "InpCostModelVerified": "true",
+    "InpCostModelVerified": "false",
     "InpEstimatedRoundTurnCostPerLot": "0.0",
     "InpAdverseEntrySlippageTicks": "1",
     "InpAdverseStopSlippageTicks": "1",
@@ -87,11 +116,30 @@ BASE_TEMPLATE = {
     "InpTesterSharpeCap": "5.0",
 }
 
+
+def _validate_research_parameters(params: Dict[str, Any]) -> None:
+    if str(params.get("InpCostModelVerified", "false")).lower() != "true":
+        raise RuntimeError(
+            "Backtest refused: provide a verified broker cost model explicitly "
+            "instead of changing the public safe default"
+        )
+
+    risk_percent = float(params.get("InpRiskPercent", 0.0))
+    if risk_percent > 0.25 and os.environ.get(
+        "RSIFIB_ALLOW_HIGH_RISK_TESTER", ""
+    ) != "YES":
+        raise RuntimeError(
+            "Risk above 0.25% is disabled by default. For tester-only legacy "
+            "reproduction, set RSIFIB_ALLOW_HIGH_RISK_TESTER=YES explicitly."
+        )
+
 def generate_set_file(params: Dict[str, Any], filename: str) -> Path:
-    PROFILES_TESTER_DIR.mkdir(parents=True, exist_ok=True)
-    set_path = PROFILES_TESTER_DIR / filename
+    profiles_tester_dir = _required_directory("RSIFIB_MT5_DATA_DIR") / "MQL5/Profiles/Tester"
+    profiles_tester_dir.mkdir(parents=True, exist_ok=True)
+    set_path = profiles_tester_dir / filename
     full_params = dict(BASE_TEMPLATE)
     full_params.update(params)
+    _validate_research_parameters(full_params)
     with open(set_path, "w", encoding="utf-8") as f:
         f.write(f"; Auto-Generated Optimization Preset: {filename}\n")
         for k, v in full_params.items():
@@ -99,8 +147,8 @@ def generate_set_file(params: Dict[str, Any], filename: str) -> Path:
     return set_path
 
 def generate_ini_file(set_filename: str, report_name: str, deposit: float, from_date: str, to_date: str) -> Path:
-    LOCAL_INI_DIR.mkdir(parents=True, exist_ok=True)
-    ini_path = LOCAL_INI_DIR / "auto_opt.ini"
+    local_ini_dir = _required_directory("RSIFIB_MT5_CONFIG_DIR", create=True)
+    ini_path = local_ini_dir / "auto_opt.ini"
     content = f"""[Experts]
 Enabled=0
 AllowLiveTrading=0
@@ -137,9 +185,10 @@ def run_single_backtest(params: Dict[str, Any], name: str, deposit: float = 2000
     set_filename = f"opt_{name}.set"
     report_name = f"opt_rep_{name}"
     generate_set_file(params, set_filename)
-    generate_ini_file(set_filename, report_name, deposit, from_date, to_date)
+    ini_path = generate_ini_file(set_filename, report_name, deposit, from_date, to_date)
     
-    report_html = MT5_APPDATA / f"{report_name}.htm"
+    mt5_data_dir = _required_directory("RSIFIB_MT5_DATA_DIR")
+    report_html = mt5_data_dir / f"{report_name}.htm"
     if report_html.exists():
         try:
             report_html.unlink()
@@ -147,10 +196,10 @@ def run_single_backtest(params: Dict[str, Any], name: str, deposit: float = 2000
             pass
 
     cmd = [
-        MT5_TERMINAL,
-        r"/config:C:\Users\samet\AppData\Local\RSIFibEA\auto_opt.ini"
+        str(MT5_TERMINAL),
+        f"/config:{_windows_path(ini_path)}",
     ]
-    subprocess.run(cmd)
+    subprocess.run(cmd, check=False)
 
     # Wait for report generation
     max_wait = 45

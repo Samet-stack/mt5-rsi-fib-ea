@@ -1,4 +1,4 @@
-; RSIFibRetracementEA Preset - V4.0 Supreme Champion (Capital 2 000 USD)
+; Legacy V4.0 exploratory preset (historical filename retained; no performance claim)
 ; Optimized for XAUUSD M15 with Stagnation Time-Decay Exit & High Asymmetry (TP 5.5R)
 ; 3M: +430.31 $ (PF 2.80, DD 7.5%) | 6M: +674.41 $ (PF 3.67, DD 7.5%) | 12M: +955.98 $ (PF 2.65, DD 7.6%)
 ; RSI Quality Filter
@@ -21,7 +21,7 @@ InpMaxSpreadPoints=0
 InpMaxSpreadRiskPct=25.0
 InpCloseUnprotectedPosition=true
 InpStateWatchdogMs=1500
-InpCostModelVerified=true
+InpCostModelVerified=false
 InpEstimatedRoundTurnCostPerLot=7.00
 InpAdverseEntrySlippageTicks=3
 InpAdverseStopSlippageTicks=6

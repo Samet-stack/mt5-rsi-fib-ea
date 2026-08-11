@@ -1,4 +1,4 @@
-; RSIFibRetracementEA Preset - V4.0 Aggressive Target 600 (Capital 2 000 USD)
+; Legacy V4.0 high-risk exploratory preset (historical filename retained; no target claim)
 ; Optimized for maximum 3M cash acceleration (+504.75 $ without compounding / > +600 $ with compounding)
 ; 3M: +504.75 $ (PF 2.68, DD 8.8%) | 6M: +623.24 $ (PF 2.64, DD 8.4%) | 12M: +1 151.28 $ (PF 2.67, DD 9.1%)
 ; RSI Quality Filter
@@ -21,7 +21,7 @@ InpMaxSpreadPoints=0
 InpMaxSpreadRiskPct=25.0
 InpCloseUnprotectedPosition=true
 InpStateWatchdogMs=1500
-InpCostModelVerified=true
+InpCostModelVerified=false
 InpEstimatedRoundTurnCostPerLot=7.00
 InpAdverseEntrySlippageTicks=3
 InpAdverseStopSlippageTicks=6

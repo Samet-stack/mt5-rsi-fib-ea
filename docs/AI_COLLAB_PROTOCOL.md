@@ -18,7 +18,7 @@ Chaque intervention contient seulement :
 Exemple :
 
 ```text
-Projet: /home/9lx7/mt5-rsi-fib-ea
+Projet: <PROJECT_ROOT>
 Scope: MQL5/Experts/RSIFibRetracementEA.mq5
 Fonctions: RestoreSetupGeometry, CheckAndApplyBreakEven
 Invariants: demo-only; ratios V1 inchangés; aucun ordre marché d’entrée

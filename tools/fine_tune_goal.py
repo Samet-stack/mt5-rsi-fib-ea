@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Fine-Tuning Engine around the G06 Stagnation Exit Champion to achieve ~600 $ in 3M.
-"""
+"""Legacy fine-tuning sweep on exposed windows; no forward-performance claim."""
 
 import sys
 from pathlib import Path
@@ -86,7 +84,7 @@ FINE_VARIANTS = [
 
 def main():
     print("=" * 110)
-    print("🎯 FINE-TUNING FOR ~600 $ PROFIT IN 3M WITH MAXIMUM LOSS-RESISTANCE")
+    print("LEGACY FINE-TUNING SWEEP: RESULTS ARE EXPLORATORY ONLY")
     print("=" * 110)
 
     for v in FINE_VARIANTS:

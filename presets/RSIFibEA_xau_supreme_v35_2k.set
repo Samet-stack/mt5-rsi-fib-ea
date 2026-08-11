@@ -1,5 +1,5 @@
 ; ====================================================================
-; RSIFibEA V3.5 SUPREME CHAMPION PRESET (XAUUSD M15 - Capital 2000 USD)
+; Legacy V3.5 exploratory preset (historical filename retained; no performance claim)
 ; Trained and Backtested on 12 Months Real Ticks (PF 2.12 | +672.48 USD)
 ; ====================================================================
 
@@ -13,7 +13,7 @@ InpMaxSpreadPoints=0
 InpMaxSpreadRiskPct=25.0
 InpCloseUnprotectedPosition=true
 InpStateWatchdogMs=1000
-InpCostModelVerified=true
+InpCostModelVerified=false
 InpEstimatedRoundTurnCostPerLot=0.0
 InpAdverseEntrySlippageTicks=1
 InpAdverseStopSlippageTicks=1

@@ -15,3 +15,11 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local credentials and machine-specific MT5 configuration
+.env
+.env.*
+!.env.example
+*.local.ini
+.mt5-local/
+artifacts/local/

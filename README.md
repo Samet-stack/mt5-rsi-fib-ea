@@ -1,4 +1,8 @@
-# RSI Fibonacci Retracement EA — infrastructure de recherche V3 (MT5)
+# RSI Fibonacci Retracement EA — recherche V4.2 pour MT5
+
+[![Tests Python](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml/badge.svg)](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml)
+![Usage](https://img.shields.io/badge/usage-tester%20%2F%20d%C3%A9mo%20uniquement-blue)
+![Validation](https://img.shields.io/badge/performance-non%20valid%C3%A9e-orange)
 
 ## ⚠️ Avertissement et Réserve de Risque
 
@@ -6,7 +10,7 @@
 
 Le trading d'instruments financiers comporte des risques élevés de perte en capital. Les performances passées ou les simulations de backtest ne garantissent aucunement les résultats futurs. Aucune promesse de rentabilité n'est formulée. Cette version doit rester en démo tant que sa compilation, ses backtests hors échantillon et son suivi forward n'ont pas été validés.
 
-**État au 6 août 2026 :** la compilation et les 113 tests techniques passent. La V3.2 ajoute le **Trailing Stop Fibonacci multi-niveaux** (verrouillage dynamique des profits de Fib 0.382 jusqu'à 2.000) et corrige 5 anomalies de robustesse (race condition sur ordre limite instantané, fuite de handles indicateurs, adoption de résiduels, division par zéro sur sizing). Le preset `RSIFibEA_adaptive_xau_m15.set` combine la géométrie adaptative ATR et le Trailing Stop Fib. Le gate de coûts broker reste un prérequis pour tout forward test. Voir [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
+**État au 11 août 2026 :** le code contient les modules expérimentaux V4.2 et passe 118 tests locaux. La compilation native MetaEditor est vérifiée séparément. Aucun rapport brut V4.0/V4.2 ne soutient actuellement les anciens objectifs de gain : ces chiffres ont été retirés de la présentation publique. Le seul candidat enregistré et audité reste rejeté/invalide comme preuve économique. Tous les presets sont bloqués par `InpCostModelVerified=false` jusqu'à la saisie de coûts broker réellement documentés. Voir [`RAPPORT_AMELIORATIONS.md`](RAPPORT_AMELIORATIONS.md) et [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
 
 ---
 
@@ -16,9 +20,9 @@ L'**RSIFibRetracementEA** est un Expert Advisor (EA) développé en MQL5 pour Me
 1. La détection d'une **sortie de zone de survente / surachat** de l'indicateur RSI sur bougies clôturées (`shift 1` et `shift 2`).
 2. La détection d'un **ancrage Fibonacci personnalisé** sur la première bougie de couleur opposée clôturée.
 3. Le placement d'un **ordre limite** sur un niveau de retracement sous le niveau 0 (`-0.21` par défaut), protégé par un Stop-Loss au niveau d'invalidation (`-0.29` par défaut) et visant une extension à `2.56` (`2.64` en ligne visuelle).
-4. Un cadrage du risque monétaire basé sur un pourcentage de l'Equity (0,10 % par défaut, plafond logiciel 0,25 %), estimé par `OrderCalcProfit` avec coûts et slippage conservateurs, puis arrondi vers le bas au pas de volume du symbole.
+4. Un cadrage du risque monétaire basé sur un pourcentage de l'Equity (0,25 % par défaut ; plafond logiciel de 5 % réservé au Strategy Tester et déconseillé au-dessus de 0,25 %), estimé par `OrderCalcProfit` avec coûts et slippage conservateurs, puis arrondi vers le bas au pas de volume du symbole.
 
-La V2 ajoute, sous forme de modules **opt-in** désactivés par défaut, une qualification de l'excursion RSI, un filtre de tendance EMA/RSI sur timeframe supérieur, un filtre de régime ATR rapide/lent et un break-even structurel déclenché par un ratio Fibonacci. Elle remplace aussi le scan broker à chaque tick par une réconciliation événementielle temporisée, bloque les snapshots ambigus dans `STATE_FAULT`, contrôle SL/TP périodiquement, expose un score `OnTester` plafonné et fournit un dashboard léger.
+Les versions V2 à V4.2 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, structure de marché, filtre de calendrier, géométrie adaptative, break-even, trailing Fibonacci, sortie de stagnation et prise partielle. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et protège la reprise après redémarrage. Une fonctionnalité implémentée n'est jamais présentée comme une preuve de performance.
 
 Le preset conservateur garde tous les modules stratégiques V2 coupés afin de préserver le comportement de référence. Le preset `RSIFibRetracementEA_v2_research.set` les active à faible risque sur un signal **M15** et une tendance **H1**, uniquement comme hypothèse de recherche, jamais comme preuve de rentabilité.
 
@@ -57,7 +61,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | :--- | :--- | :--- | :--- |
 | **Garde & Risque** | `InpDemoOnly` | `true` | Sécurité : bloque l'exécution si le compte n'est pas un compte Démo MT5. |
 | | `InpMagicNumber` | `20260803` | Identifiant unique des ordres et positions de cet EA. |
-| | `InpRiskPercent` | `0.10` | Risque monétaire par trade en % de l'Equity ; plafond logiciel 0,25 %. |
+| | `InpRiskPercent` | `0.25` | Risque monétaire par trade en % de l'Equity. Le plafond logiciel est 5 %, uniquement pour recherches tester ; les valeurs supérieures à 0,25 % ne sont pas recommandées et plusieurs presets historiques en contiennent. |
 | | `InpMaxDailyLossPct` | `1.0` | Plafond de perte/drawdown journalier maximal en % de l'Equity. |
 | | `InpMaxDailyTrades` | `2` | Nombre maximal de nouveaux trades/positions par jour (0 = illimité). |
 | | `InpMaxConsecutiveLosses` | `2` | Nombre maximal de pertes consécutives par jour (0 = illimité). |
@@ -80,6 +84,10 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | | `InpOverboughtLevel` | `70.0` | Seuil de surachat (déclencheur signal Vente si croisement baisse). |
 | **Qualité RSI** | `InpUseRSIQualityFilter` | `false` | Exige une excursion consécutive en zone et une vitesse minimale de sortie. |
 | | `InpRSIMinBarsInZone` / `InpRSIMinExitDelta` | `2` / `4.0` | Profondeur temporelle et impulsion minimales, sur bougies clôturées. |
+| **Divergence RSI** | `InpUseRSIDivergence` / `InpRequireRSIDivergence` | `false` / `false` | Détecte ou exige une divergence sur pivots clôturés ; module expérimental. |
+| **Calendrier** | `InpUseNewsFilter` | `false` | Bloque les entrées autour des événements configurés et échoue fermé si le calendrier demandé est indisponible. |
+| **Structure** | `InpUseMarketStructure` / `InpUseSweepBuffer` | `false` / `false` | Filtres optionnels de structure et de buffer derrière les mèches récentes. |
+| **Temps/week-end** | `InpUseStagnationExit` / `InpFridayFilter` | `false` / `true` | Sortie optionnelle des positions stagnantes et restrictions de fin de semaine. |
 | **Tendance MTF** | `InpUseMTFTrendFilter` | `false` | Confirme le sens par le Close HTF face à son EMA. |
 | | `InpMTFTimeframe` / `InpMTFEMAPeriod` | `H1` / `200` | Timeframe strictement supérieur et période EMA. |
 | | `InpMTFUseRSIConfirm` | `false` | Ajoute, si activé, un RSI HTF de part et d'autre de sa médiane. |
@@ -100,6 +108,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | **Gestion position** | `InpUseBreakEven` | `false` | Déplace une seule fois le SL sans jamais le détériorer. |
 | | `InpBETriggerFibRatio` / `InpBEOffsetTicks` | `1.00` / `1` | Déclencheur structurel et verrou favorable en ticks. |
 | | `InpUseFibTrailingStop` | `false` | Trailing Stop Fibonacci multi-niveaux : verrouille les gains progressivement (BE à Fib 0.382, P0 à Fib 0.618, Fib 0.382 à Fib 1.000, Fib 1.000 à Fib 1.618, Fib 1.618 à Fib 2.000). |
+| | `InpUsePartialTP` | `false` | Ferme une fraction normalisée du volume au premier objectif, puis gère le reliquat ; module expérimental. |
 | **Affichage** | `InpDrawChartObjects` | `true` | Dessine les 6 lignes horizontales de la structure sur le graphique. |
 | | `InpVerboseLog` | `true` | Journalisation détaillée dans le Journal d'Experts. |
 | | `InpShowDashboard` | `true` | Résumé runtime mis à jour au plus une fois par seconde. |
@@ -134,7 +143,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - Expiration serveur finie prioritaire. Pour un future, la durée pending complète doit finir avant le cutoff d'échéance et GTC seul est refusé.
    - Au cutoff, redémarrer l'EA ne l'abandonne pas : il reste en gestion seulement, annule le pending et tente d'aplatir la position avec contrôle du retcode et retry. Une fermeture cliente reste impossible à garantir si MT5/VPS est hors ligne ; les protections broker demeurent indispensables.
    - Au redémarrage, restauration de la direction, de l'heure, de l'entrée, du SL, du TP et de la géométrie depuis l'ordre broker.
-5. **Filtres et gestion V2** :
+5. **Filtres et gestion V2–V4.2** :
    - Les filtres sont évalués une fois au signal, uniquement avec des données clôturées, et échouent fermés si une donnée manque.
    - Le break-even utilise `Bid` pour un achat et `Ask` pour une vente, respecte le tick size, les niveaux `STOPS/FREEZE`, conserve le TP et vérifie le retcode broker.
    - Après redémarrage, le range est reconstruit depuis le prix limite historique (ou le fill réel en fallback) et le TP ; le SL courant peut donc déjà être à break-even sans corrompre la géométrie originale.
@@ -143,7 +152,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - Plusieurs positions/ordres gérés, un type inattendu ou une exposition étrangère mélangée placent l'EA en `STATE_FAULT` et interdisent toute nouvelle entrée.
 7. **Géométrie adaptative (V3.1)** :
    - Avec `InpUseAdaptiveSL=true`, après le calcul Fibonacci initial, l'EA lit l'ATR(14) du graphique en cours. Si la distance entrée→stop est plus petite que `InpMinSLATRMultiple × ATR`, le stop est élargi pour sortir du bruit du spread et de la microstructure.
-   - Avec `InpUseAdaptiveTP=true`, le TP est recalculé à `InpTPRiskMultiple × distance_SL_réelle`, garantissant un ratio rendement/risque constant quel que soit l'instrument ou la volatilité du moment.
+   - Avec `InpUseAdaptiveTP=true`, le TP est recalculé à `InpTPRiskMultiple × distance_SL_réelle`. Cela fixe le ratio géométrique demandé avant fill et avant coûts, sans garantir le résultat réalisé.
    - Les deux options sont désactivées par défaut pour préserver la compatibilité avec les presets V1/V2. Le preset [`RSIFibEA_adaptive_xau_m15.set`](presets/RSIFibEA_adaptive_xau_m15.set) les active avec tous les filtres V2.
 
 ---
@@ -191,5 +200,42 @@ python3 tools/experiment_registry.py --root artifacts/experiments_v3 verify
 `tools/run_registered_diagnostic.py` refuse un source, preset, rapport ou probe dont le hash ne correspond pas à la spec immuable. La spec historique ne peut donc pas être réutilisée avec le nouveau source V3 ; les copies exactes restent archivées dans chaque run.
 
 Le manifeste de données est dans [`docs/DATA_MANIFEST_V3.md`](docs/DATA_MANIFEST_V3.md). Le prompt directeur Codex/Gemini est [`MASTER_RESEARCH_PROMPT_V3.md`](MASTER_RESEARCH_PROMPT_V3.md).
-Les garde-fous ajoutés au source courant et leur compilation sont consignés dans [`docs/SAFETY_PATCH_V3.md`](docs/SAFETY_PATCH_V3.md).
+Le snapshot historique des garde-fous V3 est consigné dans [`docs/SAFETY_PATCH_V3.md`](docs/SAFETY_PATCH_V3.md) ; les contrôles du source courant sont ceux de la CI et de la compilation native la plus récente.
 Le verdict consolidé est [`docs/VALIDATION_REPORT_V3.md`](docs/VALIDATION_REPORT_V3.md).
+
+---
+
+## 8. Organisation du dépôt
+
+| Chemin | Rôle |
+| --- | --- |
+| `MQL5/Experts/` | EA principal et sonde de symbole sans ordre |
+| `presets/` | configurations de recherche ; toutes bloquées jusqu'à vérification des coûts |
+| `tests/` | contrats statiques et tests Python reproductibles |
+| `tools/` | compilation, testeur MT5, parsing, diagnostic et registre |
+| `artifacts/` | preuves historiques brutes et diagnostics ; pas des prévisions |
+| `docs/` | spécifications, protocoles, gates et rapports d'audit |
+
+Les noms historiques de certains presets sont conservés pour la traçabilité.
+Des termes comme `champion` ou `target600` dans un nom de fichier ne constituent
+ni une recommandation ni une attente de performance.
+
+## 9. Amélioration continue
+
+Le projet évolue par petites hypothèses vérifiables : une modification causale,
+des tests, une compilation native, un run préenregistré et une revue des coûts.
+Le [plan public](docs/ROADMAP.md) sert de file de travail. « Améliorer chaque
+jour » signifie documenter et vérifier les progrès ; cela ne signifie pas
+optimiser chaque jour sur les mêmes données ni publier artificiellement un
+commit quotidien.
+
+## 10. Contribuer et sécurité
+
+Consultez [CONTRIBUTING.md](CONTRIBUTING.md) avant toute proposition et
+[SECURITY.md](SECURITY.md) pour signaler une vulnérabilité sans publier de
+secret. Les pull requests qui ajoutent une affirmation de performance doivent
+inclure les artefacts reproductibles exigés par le protocole.
+
+Le dépôt est publiquement consultable. Aucune licence open source n'est encore
+déclarée : les droits de réutilisation restent réservés jusqu'au choix explicite
+d'une licence par le propriétaire.

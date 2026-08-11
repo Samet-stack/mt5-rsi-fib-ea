@@ -4,6 +4,7 @@ Forensic Loss Autopsy & Mechanism Analyzer for RSIFibEA.
 Parses every losing trade, computes MFE/MAE, duration, and classifies loss archetypes.
 """
 
+import argparse
 import sys
 from pathlib import Path
 from typing import List, Dict, Any
@@ -63,5 +64,9 @@ def analyze_losses(report_path: Path):
         print(f"{idx:<3} {l['type']:<5} {l['in_time']:<17} {l['in_price']:<10.2f} {l['out_time']:<17} {l['out_price']:<10.2f} {l['profit']:>+8.2f} $  {l['comment']}")
 
 if __name__ == "__main__":
-    report_file = Path("/mnt/c/Users/samet/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/opt_rep_V35_Supreme_3M.htm")
-    analyze_losses(report_file)
+    parser = argparse.ArgumentParser(
+        description="Analyze losing trades from one explicit MT5 HTML report."
+    )
+    parser.add_argument("report", type=Path, help="Path to an MT5 HTML report")
+    arguments = parser.parse_args()
+    analyze_losses(arguments.report)

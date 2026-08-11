@@ -1,6 +1,10 @@
-# Patch de sécurité V3
+# Patch de sécurité V3 — archive historique
 
-État vérifié le 5 août 2026. Ce patch améliore l'infrastructure d'exécution ; il ne valide pas la stratégie et n'autorise aucun trading.
+État V3 vérifié le 5 août 2026. Ce document est un snapshot historique : le
+source de recherche V4.2 a évolué depuis, notamment avec un plafond logiciel
+de risque plus élevé pour le Strategy Tester. Les presets publics restent
+bloqués par le gate de coûts. Ce patch ne valide pas la stratégie et
+n'autorise aucun trading.
 
 ## Changements fail-closed
 
@@ -18,7 +22,7 @@ L'expiration serveur protège le pending si le terminal est hors ligne, mais auc
 
 ## Vérification
 
-- Source : `2d292e4074deeb1679d16fd2636e8cc01dd3aeb0e03ddca20ec13b249a8f445e`.
+- Source historique V3 : `2d292e4074deeb1679d16fd2636e8cc01dd3aeb0e03ddca20ec13b249a8f445e`.
 - Déploiement MT5 : hash identique.
 - Compilation MetaEditor build 6090 : `0 errors, 0 warnings`, EX5 de 110 628 octets, SHA-256 `edf27c8a4e31ebb22dc6f8ad647d4eca4e9eeb54a72bfd03c26724cd860982c7`.
 - Tests locaux : 111 réussis.

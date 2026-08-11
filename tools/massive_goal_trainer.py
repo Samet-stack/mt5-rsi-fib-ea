@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""
-Massive Multi-Month Goal Trainer & Strategy Evolution Engine for RSIFibEA.
-Optimizes towards ~600 $ Net Profit in 3M on 2000 $ Capital with Drawdown < 8% and PF > 2.5.
-Tests each top candidate across 3M, 6M, and 12M on MT5 real ticks.
+"""Legacy exploratory parameter sweep retained for reproducibility.
+
+It searches already exposed windows and cannot establish future performance.
+The cost-model gate remains mandatory and high-risk variants are tester-only.
 """
 
 import sys
@@ -126,7 +126,7 @@ FOCUSED_VARIANTS = [
 
 def main():
     print("=" * 110)
-    print("🚀 MASSIVE GOAL OPTIMIZER: TARGET ~600 $ IN 3M (CAPITAL 2000 $, DD < 8%, PF > 2.5)")
+    print("LEGACY EXPLORATORY SWEEP: NO PERFORMANCE TARGET OR FORWARD CLAIM")
     print("=" * 110)
     
     results_3m = []
@@ -166,16 +166,16 @@ def main():
     for idx, r in enumerate(results_3m, 1):
         print(f"{idx:<5} {r['name']:<36} {r['net']:>+9.2f} $ {r['pf']:>6.2f} {r['sharpe']:>8.2f} {r['trades']:>8} {r['win_rate']:>6.1f}% {r['dd']:>5.1f}%")
 
-    # Pick top 3 champions and stress-test on 6M and 12M
+    # Re-evaluate the top three in longer, already exposed windows.
     top_champions = results_3m[:3]
     print("\n" + "=" * 110)
-    print("🏆 MULTI-MONTH STRESS TEST FOR TOP 3 CHAMPIONS (6M & 12M)")
+    print("MULTI-MONTH SENSITIVITY CHECK FOR TOP THREE IN-SAMPLE RESULTS")
     print("=" * 110)
     
     for c in top_champions:
         c_name = c["name"]
         c_params = c["params"]
-        print(f"\n--- Champion: {c_name} ---")
+        print(f"\n--- Candidate: {c_name} ---")
         
         # 6M
         res_6m = run_single_backtest(c_params, f"{c_name}_6M", deposit=2000.0, from_date="2026.02.01", to_date="2026.08.01")

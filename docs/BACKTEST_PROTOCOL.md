@@ -57,7 +57,7 @@ Aucun seuil universel ne garantit une stratégie. Toute performance qui dispara�
 
 Après validation historique seulement :
 
-1. garder `InpDemoOnly=true`, utiliser 0,10 % au départ et ne jamais dépasser le plafond logiciel de 0,25 % ;
+1. garder `InpDemoOnly=true`, utiliser 0,10 % au départ et ne pas dépasser la limite de recherche recommandée de 0,25 % ; le plafond technique de 5 % sert uniquement à reproduire d'anciens essais dans le Strategy Tester ;
 2. utiliser un seul symbole/timeframe au départ ;
 3. comparer chaque trade démo au journal et au backtest sur la même fenêtre ;
 4. laisser tourner plusieurs semaines et obtenir un échantillon significatif avant toute nouvelle décision ;

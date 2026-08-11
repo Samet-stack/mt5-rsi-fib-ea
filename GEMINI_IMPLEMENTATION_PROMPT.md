@@ -3,15 +3,15 @@
 Tu interviens comme collaborateur d’implémentation dans un périmètre strictement limité au projet :
 
 ```text
-/home/9lx7/mt5-rsi-fib-ea
+<PROJECT_ROOT>
 ```
 
 Tu peux créer et modifier des fichiers uniquement sous ce répertoire. Ne lis ni ne transmets aucun secret, n’utilise aucun identifiant, ne contacte aucun service externe et n’exécute aucune action sur un compte de trading. Les captures sources, consultables uniquement si nécessaire, sont :
 
 ```text
-/mnt/c/Users/samet/Pictures/Screenshots/Capture d'écran 2026-08-03 234603.png
-/mnt/c/Users/samet/Pictures/Screenshots/Capture d'écran 2026-08-03 234621.png
-/mnt/c/Users/samet/Pictures/Screenshots/Capture d'écran 2026-08-03 234808.png
+<SCREENSHOT_1_PATH>
+<SCREENSHOT_2_PATH>
+<SCREENSHOT_3_PATH>
 ```
 
 ## Objectif
@@ -19,7 +19,7 @@ Tu peux créer et modifier des fichiers uniquement sous ce répertoire. Ne lis n
 Créer une première version réellement compilable, testable et défensive d’un Expert Advisor MQL5 pour compte **démo**, fondé sur une sortie de zone RSI et une projection Fibonacci personnalisée. Le document normatif est :
 
 ```text
-/home/9lx7/mt5-rsi-fib-ea/docs/STRATEGY_SPEC.md
+<PROJECT_ROOT>/docs/STRATEGY_SPEC.md
 ```
 
 Lis-le intégralement avant de coder. En cas d’ambiguïté, choisis l’option la plus prudente, rends-la configurable et documente-la. Ne promets jamais une rentabilité et ne « sur-optimise » pas des valeurs sur les trois captures.

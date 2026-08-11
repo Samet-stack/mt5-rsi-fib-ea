@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test V3.6 Ultra-Shield (Loss-Reduction Champion) across 3M, 6M, and 12M.
-"""
+"""Legacy V3.6 loss-filter sensitivity check on exposed windows."""
 
 import sys
 from pathlib import Path

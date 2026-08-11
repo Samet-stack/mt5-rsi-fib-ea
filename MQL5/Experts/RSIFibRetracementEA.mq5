@@ -7,8 +7,8 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026"
 #property link      ""
-#property version   "3.01"
-#property description "RSI Custom Fibonacci Limit Expert Advisor for MT5 (Strict Demo/Tester Research)"
+#property version   "4.20"
+#property description "RSI/Fibonacci research EA for MT5 (strict demo/tester only)"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -44,7 +44,7 @@ enum ENUM_SIGNAL_DIR
 input group "=== Guard & Risk Parameters ==="
 input bool     InpDemoOnly              = true;        // Demo Account Only Guard
 input ulong    InpMagicNumber           = 20260803;    // EA Magic Number
-input double   InpRiskPercent           = 0.25;        // Risk per trade (% of Equity, max 1.00%)
+input double   InpRiskPercent           = 0.25;        // Risk per trade (% of Equity, software max 5.00; research only above 0.25)
 input double   InpMaxDailyLossPct       = 1.0;         // Max Daily Loss/Drawdown (% of Equity)
 input int      InpMaxDailyTrades        = 2;           // Max new positions per day (0 = disabled)
 input int      InpMaxConsecutiveLosses  = 2;           // Max consecutive losses per day (0 = disabled)
@@ -2493,9 +2493,15 @@ bool CheckEconomicCalendarFilter()
       if (StringLen(curr) == 0)
          continue;
 
-      ulong change_id = 0;
       ResetLastError();
-      int count = CalendarValueHistory(values, change_id, time_from, time_to, NULL, curr);
+      int count = CalendarValueHistory(values, time_from, time_to, NULL, curr);
+      if (count < 0)
+      {
+         if (InpVerboseLog)
+            PrintFormat("NEWS FILTER: [RSIFibEA] Calendar lookup failed for %s (Error: %d). Entry blocked fail-closed.",
+                        curr, GetLastError());
+         return false;
+      }
       if (count > 0)
       {
          for (int i = 0; i < count; i++)

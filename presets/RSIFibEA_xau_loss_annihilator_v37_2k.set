@@ -1,5 +1,5 @@
 ; ====================================================================
-; RSIFibEA V3.7 LOSS-ANNIHILATOR CHAMPION (XAUUSD M15 - Capital 2000 USD)
+; Legacy V3.7 exploratory preset (historical filename retained; no performance claim)
 ; 12-Month Deep Autopsy Optimized (PF 2.32 on 12M | PF 2.77 on 6M | Max DD 6.8%)
 ; Window 10:00-16:00 eliminates London-open whipsaws and US-close fakeouts
 ; ====================================================================
@@ -14,7 +14,7 @@ InpMaxSpreadPoints=0
 InpMaxSpreadRiskPct=25.0
 InpCloseUnprotectedPosition=true
 InpStateWatchdogMs=1000
-InpCostModelVerified=true
+InpCostModelVerified=false
 InpEstimatedRoundTurnCostPerLot=0.0
 InpAdverseEntrySlippageTicks=1
 InpAdverseStopSlippageTicks=1

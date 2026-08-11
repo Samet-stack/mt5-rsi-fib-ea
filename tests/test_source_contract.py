@@ -332,6 +332,17 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         self.assertIn("EMPTY_VALUE", mtf_body)
         self.assertIn("EMPTY_VALUE", vol_body)
 
+    def test_news_filter_uses_supported_calendar_signature_and_fails_closed(self):
+        body = function_body("CheckEconomicCalendarFilter")
+        self.assertIn(
+            "CalendarValueHistory(values, time_from, time_to, NULL, curr)",
+            body,
+        )
+        self.assertNotIn("change_id", body)
+        failure_body = block_after_token(body, "if (count < 0)")
+        self.assertIn("return false", failure_body)
+        self.assertIn("Entry blocked fail-closed", failure_body)
+
     def test_closed_rsi_pair_is_copied_once_with_correct_buffer_order(self):
         body = function_body("GetClosedRSIPair")
         self.assertIn("CopyBuffer(m_rsi_handle, 0, 1, 2, values)", body)

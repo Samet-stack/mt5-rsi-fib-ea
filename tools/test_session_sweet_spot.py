@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Session Sweet Spot & Loss Annihilation Suite (3M, 6M, 12M).
-Tests precise session windows designed from the 12-month deep autopsy findings.
-"""
+"""Legacy session-window sensitivity suite on exposed 3M/6M/12M periods."""
 
 import sys
 from pathlib import Path
@@ -37,7 +34,7 @@ PERIODS = [
 ]
 
 def main():
-    print("=== Testing Loss-Optimized Session Windows Across 3M, 6M, 12M ===")
+    print("=== Session-Window Sensitivity Check Across 3M, 6M, 12M ===")
     
     for tf_label, s_date, e_date in PERIODS:
         print(f"\n==================== PERIOD: {tf_label} ({s_date} to {e_date}) ====================")

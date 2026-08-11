@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test V3.5 Supreme Combo across 3 Months, 6 Months, and 1 Full Year (12 Months).
-"""
+"""Legacy V3.5 sensitivity check across three exposed windows."""
 
 import sys
 from pathlib import Path
@@ -29,7 +27,7 @@ PERIODS = [
 ]
 
 def main():
-    print("=== Testing V3.5 Supreme Strategy Multi-Month Stress Test ===")
+    print("=== Legacy V3.5 Multi-Month Sensitivity Check ===")
     for name, start_d, end_d, label in PERIODS:
         print(f"\n--- Testing Period: {label} ({start_d} à {end_d}) ---")
         res = run_single_backtest(SUPREME_PARAMS, name, deposit=2000.0, from_date=start_d, to_date=end_d)

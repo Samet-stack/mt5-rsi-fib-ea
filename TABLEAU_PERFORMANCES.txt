@@ -1,43 +1,29 @@
-========================================================================================================================
-                      TABLEAU COMPARATIF DES PERFORMANCES MULTI-HORIZONS (XAUUSD M15 - CAPITAL 2 000 USD)
-========================================================================================================================
+RSIFIBEA - MATRICE PUBLIQUE DES PREUVES
+=======================================
 
-HORIZON 3 MOIS (2026.05.01 -> 2026.08.01) - Focus Rentabilité & Réduction des Pertes :
-------------------------------------------------------------------------------------------------------------------------
-Modèle / Version                   Gain Net     Rendement    Profit Factor   Sharpe   Win Rate   Trades   Max Drawdown
-------------------------------------------------------------------------------------------------------------------------
-V3.4 (Base 10k régressée 2k)        +18.72 $     +0.9 %          1.24         2.11     50.0 %      18       4.8 %
-V3.7 (Loss-Annihilator 2k)          +34.03 $     +1.7 %          1.40         3.15     57.1 %      14       3.4 %
-V4.0 Supreme Champion (FT05)       +430.31 $    +21.5 %          2.80        12.02     69.2 %      13       7.5 %
-V4.0 Aggressive Target 600 (FT06)  +504.75 $    +25.2 %          2.68        11.95     69.2 %      13       8.8 %
-V4.2 Quant Edge (Double TP+News)   +586.20 $    +29.3 %          3.42        14.85     78.6 %      14       6.1 %  <-- Cible ~600$
-------------------------------------------------------------------------------------------------------------------------
+Ce fichier ne contient aucun objectif de gain ni projection de rendement.
+Les performances passées et les backtests ne garantissent aucun résultat futur.
 
-HORIZON 6 MOIS (2026.02.01 -> 2026.08.01) - Stabilité & Asymétrie des Gains :
-------------------------------------------------------------------------------------------------------------------------
-Modèle / Version                   Gain Net     Rendement    Profit Factor   Sharpe   Win Rate   Trades   Max Drawdown
-------------------------------------------------------------------------------------------------------------------------
-V3.4 (Base)                         +84.92 $     +4.2 %          1.45         4.20     52.0 %      25       4.6 %
-V3.7 (Loss-Annihilator)             +42.96 $     +2.1 %          1.44         4.19     60.0 %      15       3.4 %
-V4.0 Supreme Champion (FT05)       +674.41 $    +33.7 %          3.67        24.01     72.2 %      18       7.5 %
-V4.2 Quant Edge (Double TP+News)   +842.10 $    +42.1 %          4.15        28.60     80.0 %      20       6.1 %
-------------------------------------------------------------------------------------------------------------------------
+BASELINE / V2 / V3 ENREGISTREE
+------------------------------
+Artefacts : présents (rapports bruts, probe, diagnostics, ledger hashé)
+Conclusion : le candidat historique audité est rejeté ou techniquement invalide
+             comme preuve économique, notamment à cause des coûts non vérifiés.
 
-HORIZON 12 MOIS (2025.08.01 -> 2026.08.01) - Robustesse Annuelle Complète :
-------------------------------------------------------------------------------------------------------------------------
-Modèle / Version                   Gain Net     Rendement    Profit Factor   Sharpe   Win Rate   Trades   Max Drawdown
-------------------------------------------------------------------------------------------------------------------------
-V3.4 (Base - Stop serré)           +262.70 $    +13.1 %          1.43         6.61     42.2 %     102      14.4 %
-V3.7 (Loss-Annihilator)            +133.03 $     +6.7 %          1.71        11.48     46.9 %      32       3.5 %
-V4.0 Supreme Champion (FT05)       +955.98 $    +47.8 %          2.65        23.89     51.5 %      33       7.6 %
-V4.2 Quant Edge (Double TP+News)  +1280.50 $    +64.0 %          3.85        31.20     62.5 %      36       6.4 %
-------------------------------------------------------------------------------------------------------------------------
+V3.4 / V3.5 EXPLORATOIRES
+-------------------------
+Artefacts : quelques rapports historiques sont présents.
+Conclusion : résultats exploratoires, fenêtres déjà exposées, aucune preuve de
+             robustesse future.
 
-RÉSUMÉ DES AMÉLIORATIONS TECHNIQUES MAJEURES (V4.2 QUANT EDGE) :
-1. Take-Profit Partiel (Scaling Out) : Encaissement de 50% à 2.5R + BE garanti + runner à 5.5R.
-2. Filtre Calendrier Économique MQL5 : Blocage automatique 30 min avant/après High Impact USD (NFP, CPI, Fed).
-3. Détection de Divergences RSI : Validation des divergences de momentum régulières et cachées.
-4. Time-Decay Stagnation Exit : Coupure automatique des positions sans impulsion après 8 bougies (2h).
-5. Session Institutionnelle 10:00 - 17:00 : Élimination des faux départs d'ouverture et clôture.
-6. Protection EOD Vendredi 20:00 : Clôture totale avant le week-end contre les gaps de l'Or.
-========================================================================================================================
+V4.0 / V4.2
+------------
+Artefacts : aucun rapport brut V4.0/V4.2 correspondant aux anciennes valeurs
+            marketing n'est archivé dans le dépôt.
+Conclusion : PERFORMANCE NON VERIFIEE. Les modules sont du code expérimental,
+             pas une stratégie validée.
+
+CONDITION POUR AJOUTER UNE LIGNE CHIFFREE
+-----------------------------------------
+Source hashée + preset hashé + rapport MT5 brut + vrais ticks + coûts broker +
+split temporel préenregistré + nombre total d'essais + diagnostic reproductible.
