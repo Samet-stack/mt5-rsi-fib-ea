@@ -1,6 +1,7 @@
 ; Gold M15 portfolio research profile (hypothesis, not validated).
 ; Demo/tester only. The broker cost gate is intentionally closed.
 
+InpTradeDirection=1
 InpDemoOnly=true
 InpMagicNumber=20261101
 InpRiskPercent=0.25
@@ -20,7 +21,7 @@ InpCostModelVerified=true
 InpEstimatedRoundTurnCostPerLot=7.0
 InpAdverseEntrySlippageTicks=1
 InpAdverseStopSlippageTicks=1
-InpMaxFreeMarginUsagePct=25.0
+InpMaxFreeMarginUsagePct=50.0
 InpMinDaysToContractExpiry=7
 InpUseSessionFilter=false
 InpStartHour=8
@@ -49,7 +50,7 @@ InpRequireStructureBOS=true
 InpUseSweepBuffer=false
 InpSweepLookbackBars=5
 InpSweepBufferATR=0.3
-InpUseStagnationExit=true
+InpUseStagnationExit=false
 InpStagnationMaxBars=8
 InpFridayFilter=true
 InpFridayMaxHour=15
@@ -76,9 +77,9 @@ InpEntryRatio=-0.21
 InpStopRatio=-0.29
 InpTargetRatio=2.56
 InpVisualTargetRatio=2.64
-InpUseAdaptiveSL=true
+InpUseAdaptiveSL=false
 InpMinSLATRMultiple=1.5
-InpUseAdaptiveTP=true
+InpUseAdaptiveTP=false
 InpTPRiskMultiple=3.0
 InpUsePartialTP=false
 InpPartialTPRiskMultiple=2.5
@@ -89,7 +90,7 @@ InpBETriggerFibRatio=1.00
 InpBEOffsetTicks=1
 InpBreakEvenCoversCosts=true
 InpUseFibTrailingStop=false
-InpUseRiskTrailingStop=true
+InpUseRiskTrailingStop=false
 InpRiskTrailTriggerR=1.00
 InpRiskTrailLockR=0.00
 InpRiskTrailStepR=0.50
