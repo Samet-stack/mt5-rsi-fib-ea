@@ -1,0 +1,67 @@
+{
+  "artifacts": [
+    {
+      "bytes": 202436,
+      "media_type": "text/x-mql5",
+      "path": "inputs/source.mq5",
+      "role": "source",
+      "sha256": "a16fc83902084e8a6333bed546e9403a4bf6c8d37dc8ceb3b1d449f321877d7f"
+    },
+    {
+      "bytes": 2944,
+      "media_type": "text/plain",
+      "path": "inputs/preset.set",
+      "role": "preset",
+      "sha256": "84f6c694e8bcb3d336ae750c1e4af1fd3026a0a8815e07a9425f7b0ee8603f95"
+    },
+    {
+      "bytes": 175170,
+      "media_type": "application/octet-stream",
+      "path": "inputs/expert.ex5",
+      "role": "compiled-binary",
+      "sha256": "d00d90a73ff69131988ad2850b0ea4f8cd7078a7911ae7507f9240445ee4e064"
+    },
+    {
+      "bytes": 76396,
+      "media_type": "text/html",
+      "path": "raw/report.htm",
+      "role": "mt5-report",
+      "sha256": "f8993ce692c01b74136ec2b0c20ee608778b554f5e8db36a14ca25e7270cdd7e"
+    },
+    {
+      "bytes": 3130,
+      "media_type": "application/json",
+      "path": "inputs/effective_parameters.json",
+      "role": "effective-parameters",
+      "sha256": "96a5bc90b28b5d328cde3c3759570e1ac65228885059b41e9791836cce4db27f"
+    }
+  ],
+  "cost": {
+    "currency": "USD",
+    "round_turn_per_lot": "7",
+    "verified": false
+  },
+  "environment": {
+    "broker": "MetaQuotes-Demo",
+    "model": "real_ticks",
+    "symbol": "XAUUSD",
+    "terminal_build": 6090,
+    "timeframe": "M15"
+  },
+  "parameter_comparison": {
+    "effective_count": 111,
+    "matched": true,
+    "mismatched": [],
+    "missing": [],
+    "performed": true,
+    "preset_count": 111,
+    "unexpected": []
+  },
+  "run_id": "1be2337c-27a8-4705-a7a9-b1ec458498b2",
+  "schema": "rsifib-mt5-run-archive/v1",
+  "seed": 20260813,
+  "window": {
+    "from": "2026-05-01",
+    "to": "2026-08-01"
+  }
+}

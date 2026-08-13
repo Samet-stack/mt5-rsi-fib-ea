@@ -79,13 +79,15 @@ def parse_ea_contract(path: Path) -> dict[str, object]:
     }
 
 
-def discover_tests() -> list[dict[str, object]]:
+def discover_tests() -> list[str]:
     tests = []
     for path in sorted((PROJECT_ROOT / "tests").glob("test_*.py")):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             match = re.match(r"\s+def\s+(test_[A-Za-z0-9_]+)\s*\(", line)
             if match:
-                tests.append({"file": relative(path), "line": line_number, "name": match.group(1)})
+                # Match the compact EA-contract format to keep the default
+                # review packet below its strict token budget.
+                tests.append(f"{relative(path)}:{line_number}:{match.group(1)}")
     return tests
 
 

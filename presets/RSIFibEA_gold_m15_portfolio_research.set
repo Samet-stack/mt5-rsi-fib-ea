@@ -1,4 +1,5 @@
-; Gold M15 symmetric H1 EMA200 trend alignment and 3R TP candidate.
+; Gold M15 candidate: qualified RSI exit, H1 EMA200, volatility regime,
+; closed-bar structural exits and observed (never imposed) reward/risk.
 ; Demo/tester only. The broker cost gate is intentionally closed.
 
 InpTradeDirection=0
@@ -31,7 +32,7 @@ InpRSI_AppliedPrice=0
 InpSignalTimeframe=15
 InpOversoldLevel=30.0
 InpOverboughtLevel=70.0
-InpUseRSIQualityFilter=false
+InpUseRSIQualityFilter=true
 InpRSIMinBarsInZone=2
 InpRSIMinExitDelta=4.0
 InpUseRSIDivergence=false
@@ -65,7 +66,7 @@ InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.0
-InpUseVolatilityRegime=false
+InpUseVolatilityRegime=true
 InpVolFastATRPeriod=14
 InpVolSlowATRPeriod=100
 InpVolMinRatio=0.80
@@ -80,9 +81,15 @@ InpEntryRatio=-0.21
 InpStopRatio=-0.50
 InpTargetRatio=2.56
 InpVisualTargetRatio=2.64
+InpExitGeometryMode=1
+InpStructuralStopLookbackBars=1
+InpStructuralStopBufferATR=0.30
+InpStructuralMinRiskATR=0.25
+InpStructuralTargetBufferTicks=1
+InpMinNetRewardRisk=0.0
 InpUseAdaptiveSL=false
 InpMinSLATRMultiple=1.5
-InpUseAdaptiveTP=true
+InpUseAdaptiveTP=false
 InpTPRiskMultiple=3.0
 InpUsePartialTP=false
 InpPartialTPRiskMultiple=2.5

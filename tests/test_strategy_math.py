@@ -315,6 +315,77 @@ def restore_geometry_from_target(entry, target, entry_ratio, stop_ratio,
     return p0, p1, range_r, original_stop
 
 
+def structural_exit_geometry(entry, p1, closed_extremes, atr,
+                             stop_buffer_atr, min_risk_atr,
+                             target_buffer_ticks,
+                             tick_size, is_buy):
+    """Pure closed-bar reference for V4.52 market-driven exits."""
+    values = (entry, p1, atr, stop_buffer_atr, min_risk_atr,
+              target_buffer_ticks, tick_size)
+    if (not all(is_finite_number(value) for value in values) or
+            entry <= 0.0 or p1 <= 0.0 or atr <= 0.0 or
+            stop_buffer_atr < 0.0 or min_risk_atr <= 0.0 or
+            target_buffer_ticks < 0 or
+            tick_size <= 0.0 or len(closed_extremes) < 1 or
+            not all(is_finite_number(value) and value > 0.0
+                    for value in closed_extremes)):
+        raise ValueError("Invalid structural geometry inputs")
+
+    if is_buy:
+        extreme = min(closed_extremes)
+        raw_stop = min(extreme - stop_buffer_atr * atr,
+                       entry - min_risk_atr * atr)
+        stop = math.floor(
+            raw_stop / tick_size + 1e-9
+        ) * tick_size
+        target = math.floor(
+            (p1 - target_buffer_ticks * tick_size) / tick_size + 1e-9
+        ) * tick_size
+        valid = stop < entry < target <= p1
+    else:
+        extreme = max(closed_extremes)
+        raw_stop = max(extreme + stop_buffer_atr * atr,
+                       entry + min_risk_atr * atr)
+        stop = math.ceil(
+            raw_stop / tick_size - 1e-9
+        ) * tick_size
+        target = math.ceil(
+            (p1 + target_buffer_ticks * tick_size) / tick_size - 1e-9
+        ) * tick_size
+        valid = p1 <= target < entry < stop
+    if not valid:
+        raise ValueError("Structural levels do not protect the entry")
+    return stop, target, extreme
+
+
+def net_reward_risk(gross_loss, gross_reward, round_turn_cost):
+    """Returns gross/net RR; the result never changes either price level."""
+    if (not all(is_finite_number(value) for value in
+                (gross_loss, gross_reward, round_turn_cost)) or
+            gross_loss <= 0.0 or gross_reward <= 0.0 or
+            round_turn_cost < 0.0):
+        raise ValueError("Invalid reward/risk inputs")
+    net_loss = gross_loss + round_turn_cost
+    net_reward = gross_reward - round_turn_cost
+    if net_reward <= 0.0:
+        raise ValueError("Costs consume the full reward")
+    return gross_reward / gross_loss, net_reward / net_loss
+
+
+def restore_structural_geometry(entry, target, entry_ratio,
+                                target_buffer_ticks, tick_size, is_buy):
+    """Restores P0/P1 because structural TP is a deterministic P1 offset."""
+    p1 = (target + target_buffer_ticks * tick_size if is_buy
+          else target - target_buffer_ticks * tick_size)
+    ratio_distance = 1.0 - entry_ratio
+    range_r = ((p1 - entry) if is_buy else (entry - p1)) / ratio_distance
+    if ratio_distance <= 0.0 or range_r <= 0.0:
+        raise ValueError("Invalid structural restoration inputs")
+    p0 = (entry - entry_ratio * range_r if is_buy
+          else entry + entry_ratio * range_r)
+    return p0, p1, range_r
+
+
 def break_even_levels(p0, range_r, entry, trigger_ratio, offset_ticks,
                       tick_size, is_buy):
     """Calculates Fib trigger and directionally tick-aligned break-even SL."""
@@ -858,6 +929,76 @@ class TestBreakEvenAndRestartGeometry(unittest.TestCase):
             100.0, 10.0, 102.1, 1.0, 1, 0.01, False)
         self.assertAlmostEqual(trigger, 90.0)
         self.assertAlmostEqual(new_sl, 102.09)
+
+
+class TestMarketDrivenExitGeometry(unittest.TestCase):
+    def test_anchor_only_stop_uses_the_latest_closed_bar(self):
+        stop, target, extreme = structural_exit_geometry(
+            97.90, 110.0, [98.0], 1.0, 0.30, 0.25, 1, 0.01, True)
+        self.assertAlmostEqual(extreme, 98.0)
+        self.assertAlmostEqual(stop, 97.65)
+        self.assertAlmostEqual(target, 109.99)
+
+    def test_buy_levels_come_from_closed_extreme_atr_and_p1(self):
+        stop, target, extreme = structural_exit_geometry(
+            entry=97.90,
+            p1=110.00,
+            closed_extremes=[99.0, 98.2, 97.7, 98.5, 99.4],
+            atr=2.0,
+            stop_buffer_atr=0.30,
+            min_risk_atr=0.25,
+            target_buffer_ticks=1,
+            tick_size=0.01,
+            is_buy=True,
+        )
+        self.assertAlmostEqual(extreme, 97.7)
+        self.assertAlmostEqual(stop, 97.1)
+        self.assertAlmostEqual(target, 109.99)
+
+    def test_sell_levels_come_from_closed_extreme_atr_and_p1(self):
+        stop, target, extreme = structural_exit_geometry(
+            entry=102.10,
+            p1=90.00,
+            closed_extremes=[101.0, 101.8, 102.3, 101.5, 100.6],
+            atr=2.0,
+            stop_buffer_atr=0.30,
+            min_risk_atr=0.25,
+            target_buffer_ticks=1,
+            tick_size=0.01,
+            is_buy=False,
+        )
+        self.assertAlmostEqual(extreme, 102.3)
+        self.assertAlmostEqual(stop, 102.9)
+        self.assertAlmostEqual(target, 90.01)
+
+    def test_structural_geometry_rejects_target_behind_entry(self):
+        with self.assertRaises(ValueError):
+            structural_exit_geometry(
+                97.90, 97.8, [99.0, 98.8], 1.0,
+                0.30, 0.25, 1, 0.01, True)
+
+    def test_atr_risk_floor_prevents_near_zero_stop_distance(self):
+        stop, _, _ = structural_exit_geometry(
+            100.0, 110.0, [102.5], 8.0,
+            0.30, 0.25, 1, 0.01, True)
+        self.assertAlmostEqual(stop, 98.0)
+        self.assertGreaterEqual(100.0 - stop, 2.0)
+
+    def test_cost_adjusted_rr_is_a_measurement_not_a_target_solver(self):
+        gross, net = net_reward_risk(100.0, 180.0, 7.0)
+        self.assertAlmostEqual(gross, 1.8)
+        self.assertAlmostEqual(net, 173.0 / 107.0)
+
+    def test_costs_can_invalidate_natural_reward(self):
+        with self.assertRaises(ValueError):
+            net_reward_risk(100.0, 5.0, 7.0)
+
+    def test_structural_restart_recovers_original_p0_p1(self):
+        p0, p1, range_r = restore_structural_geometry(
+            97.90, 109.99, -0.21, 1, 0.01, True)
+        self.assertAlmostEqual(p0, 100.0)
+        self.assertAlmostEqual(p1, 110.0)
+        self.assertAlmostEqual(range_r, 10.0)
 
 
 class TestDailyPositionAccounting(unittest.TestCase):

@@ -1,4 +1,4 @@
-# RSI Fibonacci Retracement EA — recherche V4.51 pour MT5
+# RSI Fibonacci Retracement EA — recherche V4.52 pour MT5
 
 [![Tests Python](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml/badge.svg)](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml)
 ![Usage](https://img.shields.io/badge/usage-tester%20%2F%20d%C3%A9mo%20uniquement-blue)
@@ -10,7 +10,9 @@
 
 Le trading d'instruments financiers comporte des risques élevés de perte en capital. Les performances passées ou les simulations de backtest ne garantissent aucunement les résultats futurs. Aucune promesse de rentabilité n'est formulée. Cette version doit rester en démo tant que sa compilation, ses backtests hors échantillon et son suivi forward n'ont pas été validés.
 
-**État au 13 août 2026 :** la V4.51 passe 172 tests locaux et compile avec 0 erreur / 0 avertissement dans MetaEditor build 6090. Elle conserve les règles Gold V4.50 et corrige le rejet systématique des setups lorsque le volume demandé par le risque dépasse la marge autorisée : le volume est maintenant réduit au plus grand pas broker finançable, puis son risque exact est revérifié et journalisé. Le stress à 2,7 % passe ainsi de 1 à 17 trades sur septembre–novembre, sans relever le plafond de 25 % ni le levier 1:100. Les quatre blocs de développement donnent 46 trades et +1 378,84 USD après le scénario de 7 USD/lot, mais deux blocs restent négatifs, le drawdown atteint 10,45 %, le risque réalisé varie par setup et toutes les fenêtres sont contaminées : la rentabilité future n'est **pas démontrée**. Le profil public reste à 0,25 % et tous les presets publics restent bloqués par `InpCostModelVerified=false`. Voir le [`rapport du sizing marge V4.51`](docs/V451_MARGIN_AWARE_SIZING.md) et le [`rapport d'ablation Gold V4.50`](docs/V450_GOLD_MACRO_ABLATION.md).
+**État au 13 août 2026 :** la V4.52 passe 181 tests locaux et compile avec 0 erreur / 0 avertissement dans MetaEditor build 6090. Le profil Gold n'impose plus un objectif `3R` : il fixe d'abord l'entrée limite, l'invalidation structurelle et la cible de liquidité `P1` à partir de bougies clôturées, mesure ensuite le RR net, puis calcule le volume selon le risque et la marge du setup. Un plancher de distance de stop à `0,25 ATR` empêche les RR artificiels créés par un stop microscopique.
+
+Sur quatre fenêtres de développement XAUUSD M15 à 100 % de ticks réels, le candidat qualité RSI + régime de volatilité produit 20 trades, 40 % de gagnants, +537,09 USD après une hypothèse de 7 USD/lot et un PF de 2,66 ; le net reste +365,39 USD sans le meilleur trade. Le stress à 14 USD/lot donne +520,71 USD et PF 2,56. Une fenêtre reste toutefois négative, l'échantillon est petit et aucune fenêtre propre hors échantillon ne subsiste après la correction du stop : la rentabilité future n'est **pas démontrée**. Le profil public reste à 0,25 % et tous les presets publics restent bloqués par `InpCostModelVerified=false`. Voir le [`rapport V4.52`](docs/V452_MARKET_DRIVEN_EXITS.md), le [`rapport du sizing V4.51`](docs/V451_MARGIN_AWARE_SIZING.md) et le [`rapport Gold V4.50`](docs/V450_GOLD_MACRO_ABLATION.md).
 
 ---
 
@@ -19,14 +21,14 @@ Le trading d'instruments financiers comporte des risques élevés de perte en ca
 L'**RSIFibRetracementEA** est un Expert Advisor (EA) développé en MQL5 pour MetaTrader 5. Il automatise une stratégie basée sur :
 1. La détection d'une **sortie de zone de survente / surachat** de l'indicateur RSI sur bougies clôturées (`shift 1` et `shift 2`).
 2. La détection d'un **ancrage Fibonacci personnalisé** sur la première bougie de couleur opposée clôturée.
-3. Le placement d'un **ordre limite** sur un niveau de retracement sous le niveau 0 (`-0.21` par défaut), protégé par un Stop-Loss au niveau d'invalidation (`-0.29` par défaut) et visant une extension à `2.56` (`2.64` en ligne visuelle).
+3. Le placement d'un **ordre limite** sur un niveau de retracement sous le niveau 0 (`-0.21` par défaut). En mode structurel, le Stop-Loss est placé au-delà de l'extrême clôturé avec buffer ATR et la cible juste avant `P1` ; en mode historique, les ratios Fib restent disponibles pour les contrôles de régression.
 4. Un cadrage du risque monétaire basé sur un pourcentage de l'Equity (0,25 % par défaut ; plafond logiciel de 5 % réservé au Strategy Tester et déconseillé au-dessus de 0,25 %), estimé par `OrderCalcProfit` avec coûts et slippage conservateurs, puis arrondi vers le bas au pas de volume du symbole.
 
-Les versions V2 à V4.51 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, vrai break de structure, calendrier live ou fichier testeur, géométrie adaptative, break-even, trailing Fibonacci ou en multiples de R, sortie de stagnation et prise partielle. La V4.40 ajoute des plafonds portefeuille par plage de magic numbers, un plancher break-even calculé en devise du compte et des profils distincts Gold/Nasdaq/EURUSD. La V4.50 ajoute une politique achat/vente auditable, une pente EMA H1 optionnelle et la revalidation du filtre macro pendant toute la vie du setup. La V4.51 traite le risque demandé comme un plafond et réduit le volume si la marge autorisée ne finance pas le lot initial. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et protège la reprise après redémarrage. Une fonctionnalité implémentée n'est jamais présentée comme une preuve de performance.
+Les versions V2 à V4.52 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, structure, calendrier live ou fichier testeur, géométrie adaptative ou structurelle, break-even, trailing, sortie de stagnation et prise partielle. La V4.40 ajoute les plafonds portefeuille et les profils Gold/Nasdaq/EURUSD. La V4.50 ajoute la politique directionnelle et la revalidation macro. La V4.51 traite le risque demandé comme un plafond et réduit le volume si la marge autorisée ne finance pas le lot initial. La V4.52 sépare la décision de marché du sizing : niveaux d'abord, RR observé ensuite, lot en dernier. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et reconstruit aussi la géométrie structurelle après redémarrage.
 
 Le preset conservateur garde tous les modules stratégiques V2 coupés afin de préserver le comportement de référence. Le preset `RSIFibRetracementEA_v2_research.set` les active à faible risque sur un signal **M15** et une tendance **H1**, uniquement comme hypothèse de recherche, jamais comme preuve de rentabilité.
 
-Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08 × range`, contre `2,77 × range` jusqu'au TP : le ratio rendement/risque théorique est très élevé, mais le stop est extrêmement sensible au spread, au slippage et au bruit de marché. Le filtre `InpMaxSpreadRiskPct` est donc activé par défaut.
+Le mode historique peut encore reproduire un RR géométrique très élevé et sensible au spread. Le profil Gold V4.52 utilise à la place le mode structurel, un plancher ATR, `OrderCalcProfit` et le filtre `InpMaxSpreadRiskPct`.
 
 ---
 
@@ -108,6 +110,11 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | | `InpStopRatio` | `-0.29` | Ratio du Stop-Loss d'invalidation (< EntryRatio). |
 | | `InpTargetRatio` | `2.56` | Ratio du Take-Profit principal. |
 | | `InpVisualTargetRatio` | `2.64` | Ratio de la seconde borne visuelle affichée. |
+| **Sorties structurelles** | `InpExitGeometryMode` | `EXIT_GEOMETRY_LEGACY` | Sélectionne le mode historique ou les sorties dérivées de la structure clôturée. |
+| | `InpStructuralStopLookbackBars` / `InpStructuralStopBufferATR` | `1` / `0.30` | Extrême d'invalidation clôturé et buffer ATR au-delà de cet extrême. |
+| | `InpStructuralMinRiskATR` | `0.25` | Distance entrée→SL minimale ; évite un stop microscopique et un RR artificiel. |
+| | `InpStructuralTargetBufferTicks` | `1` | Place le TP juste avant la liquidité `P1`, sans exiger sa cassure. |
+| | `InpMinNetRewardRisk` | `0.0` | Seuil optionnel sur le RR naturel net de coûts ; zéro mesure sans filtrer et ne déplace jamais la cible. |
 | **Géométrie Adaptative** | `InpUseAdaptiveSL` | `false` | Si activé, le SL s'adapte à la volatilité du graphique : si la distance Fib SL est plus petite que `InpMinSLATRMultiple × ATR(14)`, le stop est élargi automatiquement pour rester hors du bruit. |
 | | `InpMinSLATRMultiple` | `1.5` | Plancher du SL en multiples d'ATR. Le SL ne sera jamais plus proche que cette distance × ATR de l'entrée. |
 | | `InpUseAdaptiveTP` | `false` | Si activé, le TP est calculé comme un multiple fixe de la distance SL réelle (ratio rendement/risque constant). |
@@ -141,7 +148,8 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - **Achat** : `P1` = plus haut High entre la bougie signal et la bougie de retracement ; `P0` = Low de la bougie baissière.
    - **Vente** : `P1` = plus bas Low entre la bougie signal et la bougie de retracement ; `P0` = High de la bougie haussière.
 3. **Placements & Protections** :
-   - Calcul des 4 niveaux : `Entry`, `Stop`, `Target`, `VisualTarget`.
+   - Calcul des niveaux de marché : `Entry`, puis `Stop` et `Target`. En mode structurel, le RR n'est jamais utilisé pour fabriquer le TP.
+   - Mesure du RR brut et net avec coûts/slippage, puis seulement calcul du lot. Le risque demandé est un plafond, pas une taille fixe.
    - Vérification anti-repaint et validation stricte : l'ordre `Buy Limit` n'est envoyé que si `Entry < Ask`, le `Sell Limit` si `Entry > Bid`. Aucun ordre au marché de substitution.
    - Taille de lot calculée par `OrderCalcProfit` après dégradation de l'entrée et du stop, ajout du coût aller-retour par lot, contrôle exact après arrondi et validation `OrderCalcMargin`.
 4. **Expirations & Annulations** :
@@ -153,7 +161,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - Expiration serveur finie prioritaire. Pour un future, la durée pending complète doit finir avant le cutoff d'échéance et GTC seul est refusé.
    - Au cutoff, redémarrer l'EA ne l'abandonne pas : il reste en gestion seulement, annule le pending et tente d'aplatir la position avec contrôle du retcode et retry. Une fermeture cliente reste impossible à garantir si MT5/VPS est hors ligne ; les protections broker demeurent indispensables.
    - Au redémarrage, restauration de la direction, de l'heure, de l'entrée, du SL, du TP et de la géométrie depuis l'ordre broker.
-5. **Filtres et gestion V2–V4.51** :
+5. **Filtres et gestion V2–V4.52** :
    - Les filtres sont évalués séquentiellement au signal, uniquement avec des données clôturées. Chaque croisement reçoit un premier motif de rejet stable dans le résumé `FUNNEL|reason|count`.
    - La politique directionnelle est appliquée au signal, avant le placement, pendant l'attente et juste avant l'envoi au broker. Le filtre H1 est lui aussi recalculé à ces étapes ; un pending est annulé si l'alignement macro disparaît.
    - Le break-even utilise `Bid` pour un achat et `Ask` pour une vente, respecte le tick size, les niveaux `STOPS/FREEZE`, conserve le TP et vérifie le retcode broker.
@@ -161,7 +169,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - Le risque demandé est un maximum. Si son volume dépasse la marge autorisée, une recherche sur les pas de lot le réduit ; le risque et la marge réellement obtenus sont ensuite recalculés, affichés et journalisés.
    - Le trailing R conserve le stop initial immuable, y compris après redémarrage, et son plancher ne peut pas être inférieur au break-even couvrant les coûts.
    - Gold, Nasdaq et EURUSD peuvent partager un plafond d'exposition, de trades et de perte journalière via leur plage de magic numbers.
-   - Après redémarrage, le range est reconstruit depuis le prix limite historique (ou le fill réel en fallback) et le TP ; le SL courant peut donc déjà être à break-even sans corrompre la géométrie originale.
+   - Après redémarrage, le mode historique reconstruit le range depuis le prix limite et le TP. Le mode structurel inverse exactement le buffer en ticks appliqué à `P1`, sans dépendre d'une variable globale locale au terminal.
 6. **Runtime défensif** :
    - `OnTradeTransaction` marque seulement l'état broker comme à resynchroniser. Le snapshot exhaustif est coalescé sur le tick suivant ou le watchdog.
    - Plusieurs positions/ordres gérés, un type inattendu ou une exposition étrangère mélangée placent l'EA en `STATE_FAULT` et interdisent toute nouvelle entrée.
@@ -178,7 +186,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 2. Sélectionner `RSIFibRetracementEA.mq5` (ou `.ex5`).
 3. Choisir le symbole (ex. `EURUSD`) et le timeframe (ex. `M15`).
 4. Sélectionner impérativement **Chaque tick basé sur des ticks réels** (*Every tick based on real ticks*). Le mode OHLC n'est pas acceptable avec ce stop très serré.
-5. Dans l'onglet **Inputs**, charger le preset `presets/RSIFibRetracementEA_demo.set` (ratios Fib fixes) ou `presets/RSIFibEA_adaptive_xau_m15.set` (SL/TP adaptés au graphique via ATR, tous filtres V2 actifs).
+5. Dans l'onglet **Inputs**, charger un preset adapté au symbole. Le profil [`Gold V4.52`](presets/RSIFibEA_gold_m15_portfolio_research.set) utilise les sorties structurelles ; le preset démo conserve le mode historique comme contrôle.
 6. Documenter le modèle de coûts du broker cible puis seulement passer `InpCostModelVerified=true`. Un montant nul n'est admis que si le broker confirme réellement l'absence de commission/frais ; les presets livrés restent volontairement bloqués avec le flag à `false`.
 7. Réaliser des tests hors échantillon (*Out of Sample*), puis un walk-forward et une simulation avec coûts dégradés avant tout déploiement en démo. Le protocole détaillé se trouve dans [`docs/BACKTEST_PROTOCOL.md`](docs/BACKTEST_PROTOCOL.md).
 
@@ -216,11 +224,12 @@ python3 tools/experiment_registry.py --root artifacts/experiments_v3 verify
 
 La couche V4 ajoute :
 
-- [`tools/archive_mt5_run.py`](tools/archive_mt5_run.py), qui refuse l'écrasement, compare les 105 paramètres effectifs au preset et hash chaque artefact ;
+- [`tools/archive_mt5_run.py`](tools/archive_mt5_run.py), qui refuse l'écrasement, compare les paramètres effectifs au preset et hash chaque artefact ;
 - [`tools/cost_adjustment.py`](tools/cost_adjustment.py), qui agrège les sorties partielles, conserve commission/swap/frais natifs une seule fois et n'ajoute jamais une seconde fois le spread déjà implicite ;
 - [`tools/portfolio_evaluator.py`](tools/portfolio_evaluator.py), qui exige un coût explicite par symbole, des fenêtres identiques et au moins 99 % de ticks réels avant de calculer fréquence, profit factor, stress et concentration ;
 - [`tools/run_mt5_symbol_catalog.ps1`](tools/run_mt5_symbol_catalog.ps1), qui découvre en mode testeur les symboles réellement disponibles sans envoyer d'ordre ;
 - les sept archives de [`artifacts/experiments_v4/runs`](artifacts/experiments_v4/runs), liées au rapport d'ablation janvier 2026.
+- les cinq archives V4.52 de [`artifacts/experiments_v4_52/runs`](artifacts/experiments_v4_52/runs), avec 111/111 paramètres comparés, source, preset, binaire et rapport brut hashés.
 
 Le manifeste de données est dans [`docs/DATA_MANIFEST_V3.md`](docs/DATA_MANIFEST_V3.md). Le prompt directeur Codex/Gemini est [`MASTER_RESEARCH_PROMPT_V3.md`](MASTER_RESEARCH_PROMPT_V3.md).
 Le snapshot historique des garde-fous V3 est consigné dans [`docs/SAFETY_PATCH_V3.md`](docs/SAFETY_PATCH_V3.md) ; les contrôles du source courant sont ceux de la CI et de la compilation native la plus récente.

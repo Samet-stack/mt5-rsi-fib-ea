@@ -94,6 +94,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
 
                 self.assertRegex(values["InpNewsMode"], r"^[012]$")
                 self.assertRegex(values["InpNewsMinImportance"], r"^[0-3]$")
+                self.assertRegex(values["InpExitGeometryMode"], r"^[01]$")
                 self.assertEqual(values["InpNewsCurrency"], "USD")
                 self.assertEqual(
                     values["InpTesterNewsFile"], r"RSIFibEA\news_events_v1.csv")
@@ -108,6 +109,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         ))
         self.assertEqual(set(BASE_TEMPLATE), input_names)
         self.assertRegex(BASE_TEMPLATE["InpNewsMode"], r"^[012]$")
+        self.assertRegex(BASE_TEMPLATE["InpExitGeometryMode"], r"^[01]$")
         self.assertEqual(BASE_TEMPLATE["InpNewsCurrency"], "USD")
         self.assertEqual(
             BASE_TEMPLATE["InpTesterNewsFile"], r"RSIFibEA\news_events_v1.csv")
@@ -184,6 +186,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
             "CheckSetupSpread()",
             "CheckSession()",
             "CheckContractLifecycle()",
+            "EvaluateSetupRewardRisk(false, true)",
         ):
             self.assertIn(guard, body[:new_bar_index])
         self.assertIn("CancelPendingOrder()", body[:new_bar_index])
@@ -579,10 +582,44 @@ class TestMQL5SafetyContracts(unittest.TestCase):
     def test_restart_geometry_uses_entry_and_tp_not_mutable_sl(self):
         body = function_body("RestoreSetupGeometry")
         self.assertIn("InpTargetRatio - InpEntryRatio", body)
-        self.assertIn("target - entry", body)
-        self.assertIn("entry - target", body)
+        self.assertIn("restored_p1 - entry", body)
+        self.assertIn("entry - restored_p1", body)
+        self.assertIn("1.0 - InpEntryRatio", body)
+        self.assertIn("InpStructuralTargetBufferTicks * tick_size", body)
         self.assertNotIn("(entry - stop) / ratio_distance", body)
         self.assertNotIn("(stop - entry) / ratio_distance", body)
+
+    def test_structural_exits_are_closed_bar_levels_not_forced_rr_targets(self):
+        flow = function_body("ProcessStateWaitingForAnchor")
+        structure = function_body("ApplyStructuralExitGeometry")
+        reward_risk = function_body("EvaluateSetupRewardRisk")
+        validation = function_body("ValidateInputs")
+
+        self.assertIn("InpExitGeometryMode == EXIT_GEOMETRY_STRUCTURE", flow)
+        self.assertLess(flow.index("ApplyStructuralExitGeometry()"),
+                        flow.index("EvaluateSetupRewardRisk(true, true)"))
+        self.assertLess(flow.index("EvaluateSetupRewardRisk(true, true)"),
+                        flow.index("CalculatePositionSize"))
+        self.assertIn("GetATR(1, atr)", structure)
+        self.assertIn("iLow(_Symbol, m_timeframe, 1)", structure)
+        self.assertIn("iHigh(_Symbol, m_timeframe, 1)", structure)
+        self.assertIn("m_setup.P1 - target_buffer", structure)
+        self.assertIn("m_setup.P1 + target_buffer", structure)
+        self.assertIn("InpStructuralMinRiskATR * atr", structure)
+        self.assertIn("MathMin(raw_structural_stop, raw_risk_floor_stop)",
+                      structure)
+        self.assertIn("MathMax(raw_structural_stop, raw_risk_floor_stop)",
+                      structure)
+        self.assertNotIn("InpTPRiskMultiple", structure)
+        self.assertIn("OrderCalcProfit(calc_type", reward_risk)
+        self.assertIn("InpEstimatedRoundTurnCostPerLot * reference_volume",
+                      reward_risk)
+        self.assertIn("m_setup.net_reward_risk", reward_risk)
+        self.assertNotIn("m_setup.target_price =", reward_risk)
+        self.assertIn("InpUseAdaptiveSL || InpUseAdaptiveTP || InpUseSweepBuffer",
+                      validation)
+        self.assertIn("InpUsePartialTP", validation)
+        self.assertIn("FUNNEL_REJECT_NET_REWARD_RISK", flow)
 
     def test_position_restart_prefers_original_limit_price_from_history(self):
         body = function_body("FindOriginalLimitGeometry")

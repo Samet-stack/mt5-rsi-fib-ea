@@ -12,6 +12,7 @@ htmlcov/
 !artifacts/experiments_v4/runs/**/inputs/expert.ex5
 !artifacts/experiments_v4/runs/**/raw/tester.log
 !artifacts/experiments_v4_5/runs/**/inputs/expert.ex5
+!artifacts/experiments_v4_52/runs/**/inputs/expert.ex5
 
 # OS & IDE metadata
 .DS_Store
