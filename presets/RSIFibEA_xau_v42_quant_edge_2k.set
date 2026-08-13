@@ -2,6 +2,7 @@
 ; Full Integration: Double TP Scaling Out (2.5R / 5.5R), High-Impact News Guard, RSI Divergence & BOS
 ; Target: ~600 $ in 3 Months on XAUUSD M15 (Max DD < 8%)
 
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=108844
 InpRiskPercent=3.50
@@ -59,6 +60,9 @@ InpFridayCloseHour=20
 InpUseMTFTrendFilter=false
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.00

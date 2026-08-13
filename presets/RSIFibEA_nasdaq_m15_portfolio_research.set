@@ -1,6 +1,7 @@
 ; Nasdaq M15 portfolio research profile (symbol name is broker-specific).
 ; Demo/tester only. The broker cost gate is intentionally closed.
 
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=20261102
 InpRiskPercent=0.25
@@ -16,7 +17,7 @@ InpMaxSpreadPoints=0
 InpMaxSpreadRiskPct=20.0
 InpCloseUnprotectedPosition=true
 InpStateWatchdogMs=1000
-InpCostModelVerified=true
+InpCostModelVerified=false
 InpEstimatedRoundTurnCostPerLot=7.0
 InpAdverseEntrySlippageTicks=1
 InpAdverseStopSlippageTicks=1
@@ -58,6 +59,9 @@ InpFridayCloseHour=20
 InpUseMTFTrendFilter=false
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.0

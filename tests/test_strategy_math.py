@@ -217,7 +217,8 @@ def passes_rsi_quality(rsi_by_shift, is_buy, min_bars, min_exit_delta,
 
 
 def passes_mtf_trend(close_htf, ema_htf, is_buy, use_rsi=False,
-                     rsi_htf=None, rsi_midline=50.0):
+                     rsi_htf=None, rsi_midline=50.0, require_slope=False,
+                     past_ema=None, min_slope_pct=0.0):
     """Checks the strict trend relation on the last closed HTF candle."""
     if (not is_finite_number(close_htf) or not is_finite_number(ema_htf) or
             close_htf <= 0.0 or ema_htf <= 0.0):
@@ -226,12 +227,33 @@ def passes_mtf_trend(close_htf, ema_htf, is_buy, use_rsi=False,
     trend_ok = close_htf > ema_htf if is_buy else close_htf < ema_htf
     if not trend_ok:
         return False
+    if require_slope:
+        if (past_ema is None or not is_finite_number(past_ema) or
+                past_ema <= 0.0 or not is_finite_number(min_slope_pct) or
+                min_slope_pct < 0.0):
+            return False
+        slope_pct = (ema_htf - past_ema) / past_ema * 100.0
+        if is_buy and slope_pct <= min_slope_pct:
+            return False
+        if not is_buy and slope_pct >= -min_slope_pct:
+            return False
     if not use_rsi:
         return True
     if (rsi_htf is None or not is_finite_number(rsi_htf) or
             rsi_htf < 0.0 or rsi_htf > 100.0):
         return False
     return rsi_htf > rsi_midline if is_buy else rsi_htf < rsi_midline
+
+
+def direction_enabled(policy, is_buy):
+    """0=both, 1=long-only, 2=short-only; invalid values fail closed."""
+    if policy == 0:
+        return True
+    if policy == 1:
+        return is_buy
+    if policy == 2:
+        return not is_buy
+    return False
 
 
 def passes_volatility_regime(fast_atr, slow_atr, min_ratio, max_ratio):
@@ -714,6 +736,38 @@ class TestAdvancedSignalFilters(unittest.TestCase):
         self.assertFalse(passes_mtf_trend(
             99.0, 100.0, False, use_rsi=True, rsi_htf=None))
         self.assertFalse(passes_mtf_trend(None, 100.0, True))
+
+    def test_mtf_ema_slope_is_directional_closed_bar_confirmation(self):
+        self.assertTrue(passes_mtf_trend(
+            102.0, 101.0, True, require_slope=True, past_ema=100.0))
+        self.assertFalse(passes_mtf_trend(
+            102.0, 101.0, False, require_slope=True, past_ema=100.0))
+        self.assertTrue(passes_mtf_trend(
+            98.0, 99.0, False, require_slope=True, past_ema=100.0))
+        self.assertFalse(passes_mtf_trend(
+            102.0, 100.0, True, require_slope=True, past_ema=100.0))
+        self.assertFalse(passes_mtf_trend(
+            102.0, 101.0, True, require_slope=True, past_ema=None))
+
+    def test_mtf_ema_slope_minimum_magnitude_is_symmetric(self):
+        self.assertTrue(passes_mtf_trend(
+            102.0, 101.0, True, require_slope=True,
+            past_ema=100.0, min_slope_pct=0.5))
+        self.assertFalse(passes_mtf_trend(
+            101.2, 100.4, True, require_slope=True,
+            past_ema=100.0, min_slope_pct=0.5))
+        self.assertTrue(passes_mtf_trend(
+            98.0, 99.0, False, require_slope=True,
+            past_ema=100.0, min_slope_pct=0.5))
+
+    def test_direction_policy_is_symmetric_and_invalid_values_fail_closed(self):
+        self.assertTrue(direction_enabled(0, True))
+        self.assertTrue(direction_enabled(0, False))
+        self.assertTrue(direction_enabled(1, True))
+        self.assertFalse(direction_enabled(1, False))
+        self.assertFalse(direction_enabled(2, True))
+        self.assertTrue(direction_enabled(2, False))
+        self.assertFalse(direction_enabled(99, True))
 
     def test_volatility_regime_accepts_inclusive_boundaries(self):
         self.assertTrue(passes_volatility_regime(0.8, 1.0, 0.8, 2.2))

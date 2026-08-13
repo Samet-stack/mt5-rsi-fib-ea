@@ -1,0 +1,4899 @@
+//+------------------------------------------------------------------+
+//|                                       RSIFibRetracementEA.mq5    |
+//|               Copyright 2026, RSI Fib Retracement EA Team        |
+//|                                                                  |
+//| Expert Advisor for MT5 based on RSI zone exit and custom Fib     |
+//| projections. strictly designed for demo testing and safety.       |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2026"
+#property link      ""
+#property version   "4.50"
+#property description "RSI/Fibonacci research EA for MT5 (strict demo/tester only)"
+#property strict
+
+#include <Trade/Trade.mqh>
+
+//--- State Machine Enums
+enum ENUM_STATE
+{
+   STATE_IDLE = 0,               // Searching for RSI Crossover signal
+   STATE_WAITING_FOR_ANCHOR = 1, // RSI Signal active, waiting for opposite candle anchor
+   STATE_PENDING_ORDER = 2,      // Limit Order placed, waiting for execution or expiry
+   STATE_IN_POSITION = 3,        // Position active
+   STATE_FAULT = 4               // Ambiguous/unsafe broker state: no new entries
+};
+
+enum ENUM_PROTECTION_STATUS
+{
+   PROTECTION_NOT_FOUND = 0,
+   PROTECTION_OK = 1,
+   PROTECTION_INVALID = 2
+};
+
+enum ENUM_SIGNAL_DIR
+{
+   SIGNAL_NONE = 0,
+   SIGNAL_BUY = 1,
+   SIGNAL_SELL = 2
+};
+
+// Economic-calendar source is explicit. The live MetaQuotes calendar is not
+// available in Strategy Tester, so tester runs must use a versioned file.
+enum ENUM_NEWS_SOURCE_MODE
+{
+   NEWS_DISABLED = 0,
+   NEWS_LIVE_CALENDAR = 1,
+   NEWS_TESTER_FILE = 2
+};
+
+// Stable, machine-readable first-failure counters. These counters diagnose
+// the strategy funnel without changing any trading decision.
+enum ENUM_FUNNEL_EVENT
+{
+   FUNNEL_RSI_CROSS = 0,
+   FUNNEL_REJECT_DIRECTION_POLICY,
+   FUNNEL_REJECT_RSI_QUALITY,
+   FUNNEL_REJECT_RSI_DIVERGENCE,
+   FUNNEL_REJECT_MARKET_STRUCTURE,
+   FUNNEL_REJECT_MTF_TREND,
+   FUNNEL_REJECT_VOLATILITY,
+   FUNNEL_REJECT_NEWS,
+   FUNNEL_REJECT_DAILY_RISK,
+   FUNNEL_REJECT_PORTFOLIO,
+   FUNNEL_REJECT_SPREAD,
+   FUNNEL_REJECT_SESSION,
+   FUNNEL_REJECT_CONTRACT,
+   FUNNEL_SIGNAL_ACCEPTED,
+   FUNNEL_REJECT_ANCHOR_HISTORY,
+   FUNNEL_REJECT_ANCHOR_TIMEOUT,
+   FUNNEL_REJECT_OPPOSITE_SIGNAL,
+   FUNNEL_REJECT_ANCHOR_RANGE,
+   FUNNEL_REJECT_ATR_RANGE,
+   FUNNEL_REJECT_FIB_GEOMETRY,
+   FUNNEL_REJECT_ADAPTIVE_GEOMETRY,
+   FUNNEL_REJECT_PRICE_INVALIDATION,
+   FUNNEL_REJECT_STOPS_LEVEL,
+   FUNNEL_REJECT_SETUP_SPREAD,
+   FUNNEL_REJECT_LIMIT_RULE,
+   FUNNEL_REJECT_DIRECTION,
+   FUNNEL_REJECT_EXISTING_EXPOSURE,
+   FUNNEL_REJECT_SIZE_INVALID,
+   FUNNEL_REJECT_SIZE_MIN_LOT,
+   FUNNEL_REJECT_SIZE_RISK,
+   FUNNEL_REJECT_SIZE_MARGIN,
+   FUNNEL_REJECT_PARTIAL_UNSPLITTABLE,
+   FUNNEL_ORDER_SEND,
+   FUNNEL_ORDER_PLACED,
+   FUNNEL_ORDER_SEND_FAILED,
+   FUNNEL_PENDING_CANCEL_GUARD,
+   FUNNEL_PENDING_CANCEL_MTF,
+   FUNNEL_PENDING_CANCEL_PRICE,
+   FUNNEL_PENDING_CANCEL_AGE,
+   FUNNEL_PENDING_CANCEL_OPPOSITE,
+   FUNNEL_PARTIAL_EXECUTED,
+   FUNNEL_PARTIAL_FAILED,
+   FUNNEL_EVENT_COUNT
+};
+
+//+------------------------------------------------------------------+
+//| INPUT PARAMETERS                                                 |
+//+------------------------------------------------------------------+
+enum ENUM_EA_TRADE_DIRECTION
+{
+   EA_DIR_BOTH,         // Long & Short
+   EA_DIR_LONG_ONLY,    // Long Only
+   EA_DIR_SHORT_ONLY    // Short Only
+};
+
+//--- Security & Account Protection
+input group "=== Guard & Risk Parameters ==="
+input ENUM_EA_TRADE_DIRECTION InpTradeDirection = EA_DIR_BOTH; // Allowed Trade Directions
+input bool     InpDemoOnly              = true;        // Demo Account Only Guard
+input ulong    InpMagicNumber           = 20260803;    // EA Magic Number
+input double   InpRiskPercent           = 0.25;        // Risk per trade (% of Equity, software max 5.00; research only above 0.25)
+input double   InpMaxDailyLossPct       = 1.0;         // Max Daily Loss/Drawdown (% of Equity)
+input int      InpMaxDailyTrades        = 2;           // Max new positions per day (0 = disabled)
+input int      InpMaxConsecutiveLosses  = 2;           // Max consecutive losses per day (0 = disabled)
+input ulong    InpPortfolioMagicMin     = 0;           // Shared strategy magic range lower bound (0 = disabled)
+input ulong    InpPortfolioMagicMax     = 0;           // Shared strategy magic range upper bound (0 = disabled)
+input int      InpMaxPortfolioActiveExposures = 0;     // Max positions + pending orders in shared range (0 = disabled)
+input int      InpMaxPortfolioDailyTrades = 0;         // Max new positions/day in shared range (0 = disabled)
+input double   InpMaxPortfolioDailyLossPct = 0.0;      // Max shared realized + floating daily loss (0 = disabled)
+input int      InpMaxSpreadPoints       = 0;           // Max allowed spread in points (0 = disabled)
+input double   InpMaxSpreadRiskPct      = 25.0;        // Max spread as % of Entry-to-SL distance (0 = disabled)
+input bool     InpCloseUnprotectedPosition = true;     // Close EA position if broker SL/TP is missing
+input uint     InpStateWatchdogMs       = 1000;        // Broker-state watchdog interval (milliseconds)
+input bool     InpCostModelVerified     = false;       // Explicit broker cost verification gate (mandatory)
+input double   InpEstimatedRoundTurnCostPerLot = 0.0;  // Verified commission/fees per lot in account currency (>=0)
+input int      InpAdverseEntrySlippageTicks = 1;       // Worst-case adverse slippage at pending fill for sizing
+input int      InpAdverseStopSlippageTicks = 1;        // Worst-case adverse slippage beyond SL for sizing
+input double   InpMaxFreeMarginUsagePct = 25.0;        // Max share of current free margin for a new order
+input int      InpMinDaysToContractExpiry = 7;         // Reject expiring contracts inside this horizon
+
+//--- Session Filter
+input group "=== Session Filter ==="
+input bool     InpUseSessionFilter      = false;       // Enable Session Time Filter
+input int      InpStartHour             = 8;           // Session Start Hour (Broker time)
+input int      InpEndHour               = 20;          // Session End Hour (Broker time)
+
+//--- RSI Parameters
+input group "=== RSI Parameters ==="
+input int                InpRSI_Period        = 14;          // RSI Period
+input ENUM_APPLIED_PRICE InpRSI_AppliedPrice  = PRICE_CLOSE; // RSI Applied Price
+input ENUM_TIMEFRAMES    InpSignalTimeframe   = PERIOD_CURRENT; // Signal timeframe (current chart by default)
+input double             InpOversoldLevel     = 30.0;        // RSI Oversold Level (Buy trigger)
+input double             InpOverboughtLevel   = 70.0;        // RSI Overbought Level (Sell trigger)
+
+//--- RSI Quality Filter
+input group "=== RSI Quality Filter ==="
+input bool               InpUseRSIQualityFilter = false;       // Enable RSI Quality Filter
+input int                InpRSIMinBarsInZone    = 2;           // Min consecutive bars in RSI zone before exit
+input double             InpRSIMinExitDelta     = 4.0;         // Min RSI exit delta between bar 2 and bar 1
+
+//--- RSI Divergence Engine
+input group "=== RSI Divergence Engine ==="
+input bool               InpUseRSIDivergence    = false;       // Enable RSI Divergence Detection
+input int                InpRSIDivLookbackBars  = 15;          // Lookback bars for divergence pivots (5-50)
+input double             InpRSIDivMinPivotDiff  = 2.0;         // Min RSI delta between pivots
+input bool               InpRequireRSIDivergence= false;       // Strictly require Divergence to validate entry
+
+//--- Economic Calendar News Filter
+input group "=== Economic Calendar News Filter ==="
+input ENUM_NEWS_SOURCE_MODE InpNewsMode          = NEWS_DISABLED; // Disabled, live calendar, or deterministic tester file
+input string             InpTesterNewsFile      = "RSIFibEA\\news_events_v1.csv"; // FILE_COMMON path for NEWS_TESTER_FILE
+input int                InpNewsMinsBefore      = 30;          // Freeze entries N minutes before event
+input int                InpNewsMinsAfter       = 30;          // Freeze entries N minutes after event
+input string             InpNewsCurrency        = "USD";       // News Currencies to filter (comma-separated)
+input ENUM_CALENDAR_EVENT_IMPORTANCE InpNewsMinImportance = CALENDAR_IMPORTANCE_HIGH; // Min news importance
+
+//--- Market Structure & BOS Filter
+input group "=== Market Structure & BOS Filter ==="
+input bool               InpUseMarketStructure  = false;       // Enable Market Structure (BOS) Filter
+input int                InpStructureSwingBars  = 5;           // Swing lookback for structure high/low
+input bool               InpRequireStructureBOS = true;        // Require Higher Low (Buy) / Lower High (Sell)
+
+//--- Liquidity Sweep SL Protection
+input group "=== Liquidity Sweep SL Protection ==="
+input bool               InpUseSweepBuffer      = false;       // Protect SL beyond recent wick extremes
+input int                InpSweepLookbackBars   = 5;           // Lookback bars for recent wick sweep
+input double             InpSweepBufferATR      = 0.3;         // Extra ATR buffer beyond wick extreme
+
+//--- Time-Decay & Friday Protection
+input group "=== Time-Decay & Friday Protection ==="
+input bool               InpUseStagnationExit   = false;       // Close trades stalling with no momentum
+input int                InpStagnationMaxBars   = 8;           // Max M15 bars without progress (8 = 2h)
+input bool               InpFridayFilter        = true;        // Restrict new entries on Friday afternoon
+input int                InpFridayMaxHour       = 15;          // No new trades after this hour on Friday
+input bool               InpCloseFridayEOD      = true;        // Close open position on Friday before weekend
+input int                InpFridayCloseHour     = 20;          // Friday close hour (e.g. 20:00)
+
+//--- Multi-Timeframe Trend Filter
+input group "=== Multi-Timeframe Trend Filter ==="
+input bool               InpUseMTFTrendFilter   = false;       // Enable MTF Trend Filter
+input ENUM_TIMEFRAMES    InpMTFTimeframe        = PERIOD_H1;   // HTF Trend Timeframe
+input int                InpMTFEMAPeriod        = 200;         // HTF EMA Period
+input bool               InpMTFRequireEMASlope  = false;       // Require EMA slope in signal direction
+input int                InpMTFSlopeLookbackBars= 8;           // Closed HTF bars used for EMA slope
+input double             InpMTFMinSlopePct      = 0.0;         // Min absolute EMA change over lookback (%)
+input bool               InpMTFUseRSIConfirm    = false;       // Enable HTF RSI Confirmation
+input int                InpMTFRSIPeriod        = 14;          // HTF RSI Period
+input double             InpMTFRSIMidline       = 50.0;        // HTF RSI Midline Level
+
+//--- Volatility Regime Filter
+input group "=== Volatility Regime Filter ==="
+input bool               InpUseVolatilityRegime = false;       // Enable Volatility Regime Filter
+input int                InpVolFastATRPeriod    = 14;          // Fast ATR Period
+input int                InpVolSlowATRPeriod    = 100;         // Slow ATR Period
+input double             InpVolMinRatio         = 0.80;        // Min Fast/Slow ATR Ratio
+input double             InpVolMaxRatio         = 2.20;        // Max Fast/Slow ATR Ratio
+
+//--- Anchoring & Setup Timing
+input group "=== Anchoring & Timing ==="
+input int      InpMinImpulseBars        = 1;           // Min bars after signal before anchor
+input int      InpAnchorWaitBars        = 8;           // Max bars to wait for anchor candle
+input int      InpPendingOrderBars      = 8;           // Pending order lifespan in bars
+input double   InpMinRangeATR           = 0.0;         // Min setup range in ATR multiples (0 = off)
+input double   InpMaxRangeATR           = 0.0;         // Max setup range in ATR multiples (0 = off)
+input int      InpATR_Period            = 14;          // ATR Period for range filter
+
+//--- Fibonacci Custom Ratios
+input group "=== Fibonacci Geometry Ratios ==="
+input double   InpEntryRatio            = -0.21;       // Limit Entry Ratio (< 0.0)
+input double   InpStopRatio             = -0.29;       // Invalidation Stop Ratio (< EntryRatio)
+input double   InpTargetRatio           = 2.56;        // Take Profit Ratio (>= 1.0)
+input double   InpVisualTargetRatio     = 2.64;        // Second Visual Target Line Ratio
+
+//--- Adaptive Geometry (chart-dependent SL/TP)
+input group "=== Adaptive Geometry (ATR-based) ==="
+input bool     InpUseAdaptiveSL         = false;       // Adapt SL floor to chart volatility (ATR)
+input double   InpMinSLATRMultiple      = 1.5;         // Minimum SL distance in ATR multiples
+input bool     InpUseAdaptiveTP         = false;       // Adapt TP to fixed R:R from actual SL distance
+input double   InpTPRiskMultiple        = 3.0;         // TP distance = SL distance x this R:R multiple
+
+//--- Partial Take-Profit & Scaling Out
+input group "=== Partial Take-Profit & Scaling Out ==="
+input bool     InpUsePartialTP          = false;       // Enable Partial Take-Profit (2-Target Asymmetry)
+input double   InpPartialTPRiskMultiple = 2.5;         // TP1 Risk Multiple (R:R) for partial close
+input double   InpPartialClosePercent   = 50.0;        // Percentage of volume to close at TP1 (e.g. 50%)
+input bool     InpPartialLockBE         = true;        // Move Stop-Loss to Break-Even upon TP1 fill
+
+//--- Position Management
+input group "=== Position Management ==="
+input bool     InpUseBreakEven          = false;       // Enable structural break-even management
+input double   InpBETriggerFibRatio     = 1.00;        // Fib ratio that triggers break-even
+input int      InpBEOffsetTicks         = 1;           // Favorable offset from entry in trade ticks
+input bool     InpBreakEvenCoversCosts  = true;        // Move beyond verified round-turn costs before calling it BE
+input bool     InpUseFibTrailingStop    = false;       // Enable multi-level Fibonacci trailing stop
+input bool     InpUseRiskTrailingStop   = false;       // Enable symbol-neutral trailing in initial-risk multiples
+input double   InpRiskTrailTriggerR     = 1.00;        // First activation threshold in R
+input double   InpRiskTrailLockR        = 0.00;        // Locked R at first activation (cost floor still applies)
+input double   InpRiskTrailStepR        = 0.50;        // Additional R required for each stop step
+
+//--- Visualization & Logging
+input group "=== Display & Diagnostics ==="
+input bool     InpDrawChartObjects      = true;        // Draw Fib setup lines on chart
+input bool     InpVerboseLog            = true;        // Detailed diagnostic log messages
+input bool     InpShowDashboard         = true;        // Lightweight on-chart runtime status
+input bool     InpDashboardInTester     = false;       // Show dashboard in Strategy Tester
+
+//--- Strategy Tester Fitness
+input group "=== Strategy Tester Fitness ==="
+input int      InpTesterMinTrades       = 40;          // Reject samples smaller than this
+input int      InpTesterTargetTrades    = 120;         // Full sample weight at/above this size
+input double   InpTesterMaxDDPct        = 30.0;        // Reject equity drawdown at/above this value
+input double   InpTesterPFCap           = 5.0;         // Cap outlier profit-factor contribution
+input double   InpTesterSharpeCap       = 5.0;         // Cap outlier Sharpe contribution
+
+//+------------------------------------------------------------------+
+//| GLOBAL VARIABLES & STRUCTURES                                    |
+//+------------------------------------------------------------------+
+struct SetupStruct
+{
+   ENUM_SIGNAL_DIR dir;
+   datetime        signal_time;
+   datetime        anchor_time;
+   double          P0;
+   double          P1;
+   double          range;
+   double          entry_price;
+   double          stop_price;
+   double          target_price;
+   double          visual_target_price;
+   double          partial_tp_price;
+   bool            partial_tp_closed;
+   bool            partial_tp_disabled;
+   datetime        pending_order_time;
+   ulong           pending_ticket;
+   ulong           position_ticket;
+
+   void Reset()
+   {
+      dir                 = SIGNAL_NONE;
+      signal_time         = 0;
+      anchor_time         = 0;
+      P0                  = 0.0;
+      P1                  = 0.0;
+      range               = 0.0;
+      entry_price         = 0.0;
+      stop_price          = 0.0;
+      target_price        = 0.0;
+      visual_target_price = 0.0;
+      partial_tp_price    = 0.0;
+      partial_tp_closed   = false;
+      partial_tp_disabled = false;
+      pending_order_time  = 0;
+      pending_ticket      = 0;
+      position_ticket     = 0;
+   }
+};
+
+struct TesterNewsEvent
+{
+   datetime time;
+   string   currency;
+   int      importance;
+   string   name;
+};
+
+struct DailyPositionStat
+{
+   long   identifier;
+   double pnl;
+   long   last_exit_msc;
+   bool   has_entry;
+   bool   has_exit;
+};
+
+struct BrokerSnapshot
+{
+   int   symbol_positions;
+   int   symbol_orders;
+   int   managed_positions;
+   int   managed_orders;
+   int   managed_limits;
+   int   managed_unsupported;
+   ulong position_ticket;
+   ulong limit_ticket;
+
+   void Reset()
+   {
+      symbol_positions = 0;
+      symbol_orders = 0;
+      managed_positions = 0;
+      managed_orders = 0;
+      managed_limits = 0;
+      managed_unsupported = 0;
+      position_ticket = 0;
+      limit_ticket = 0;
+   }
+};
+
+CTrade      m_trade;
+CTrade      m_safety_trade;
+int         m_rsi_handle = INVALID_HANDLE;
+int         m_atr_handle = INVALID_HANDLE;
+int         m_mtf_ema_handle = INVALID_HANDLE;
+int         m_mtf_rsi_handle = INVALID_HANDLE;
+int         m_vol_fast_atr_handle = INVALID_HANDLE;
+int         m_vol_slow_atr_handle = INVALID_HANDLE;
+datetime    m_last_bar_time = 0;
+ENUM_STATE  m_state = STATE_IDLE;
+SetupStruct m_setup;
+string      m_obj_prefix = "";
+ENUM_TIMEFRAMES m_timeframe = PERIOD_CURRENT;
+datetime    m_last_emergency_close_attempt = 0;
+datetime    m_last_lifecycle_close_attempt = 0;
+datetime    m_last_managed_close_attempt = 0;
+datetime    m_last_cancel_attempt = 0;
+bool        m_sync_required = true;
+ulong       m_last_broker_scan_ms = 0;
+datetime    m_last_break_even_attempt = 0;
+datetime    m_last_partial_attempt = 0;
+ulong       m_last_dashboard_ms = 0;
+ulong       m_residual_order_ticket = 0;
+int         m_empty_broker_confirmations = 0;
+string      m_fault_reason = "";
+string      m_last_status = "initializing";
+string      m_protection_status = "N/A";
+bool        m_daily_stats_dirty = true;
+datetime    m_daily_cache_day = 0;
+int         m_daily_cache_trades = 0;
+double      m_daily_cache_pnl = 0.0;
+int         m_daily_cache_consecutive_losses = 0;
+long        m_funnel[FUNNEL_EVENT_COUNT];
+TesterNewsEvent m_tester_news_events[];
+datetime    m_tester_news_coverage_from = 0;
+datetime    m_tester_news_coverage_to = 0;
+bool        m_tester_news_ready = false;
+double      m_last_sizing_risk_budget = 0.0;
+double      m_last_sizing_loss_per_lot = 0.0;
+double      m_last_sizing_min_lot_loss = 0.0;
+double      m_last_sizing_required_equity = 0.0;
+double      m_last_sizing_raw_volume = 0.0;
+
+string FunnelEventName(const ENUM_FUNNEL_EVENT event)
+{
+   switch (event)
+   {
+      case FUNNEL_RSI_CROSS: return "RSI_CROSS";
+      case FUNNEL_REJECT_DIRECTION_POLICY: return "REJECT_DIRECTION_POLICY";
+      case FUNNEL_REJECT_RSI_QUALITY: return "REJECT_RSI_QUALITY";
+      case FUNNEL_REJECT_RSI_DIVERGENCE: return "REJECT_RSI_DIVERGENCE";
+      case FUNNEL_REJECT_MARKET_STRUCTURE: return "REJECT_MARKET_STRUCTURE";
+      case FUNNEL_REJECT_MTF_TREND: return "REJECT_MTF_TREND";
+      case FUNNEL_REJECT_VOLATILITY: return "REJECT_VOLATILITY";
+      case FUNNEL_REJECT_NEWS: return "REJECT_NEWS";
+      case FUNNEL_REJECT_DAILY_RISK: return "REJECT_DAILY_RISK";
+      case FUNNEL_REJECT_PORTFOLIO: return "REJECT_PORTFOLIO";
+      case FUNNEL_REJECT_SPREAD: return "REJECT_SPREAD";
+      case FUNNEL_REJECT_SESSION: return "REJECT_SESSION";
+      case FUNNEL_REJECT_CONTRACT: return "REJECT_CONTRACT";
+      case FUNNEL_SIGNAL_ACCEPTED: return "SIGNAL_ACCEPTED";
+      case FUNNEL_REJECT_ANCHOR_HISTORY: return "REJECT_ANCHOR_HISTORY";
+      case FUNNEL_REJECT_ANCHOR_TIMEOUT: return "REJECT_ANCHOR_TIMEOUT";
+      case FUNNEL_REJECT_OPPOSITE_SIGNAL: return "REJECT_OPPOSITE_SIGNAL";
+      case FUNNEL_REJECT_ANCHOR_RANGE: return "REJECT_ANCHOR_RANGE";
+      case FUNNEL_REJECT_ATR_RANGE: return "REJECT_ATR_RANGE";
+      case FUNNEL_REJECT_FIB_GEOMETRY: return "REJECT_FIB_GEOMETRY";
+      case FUNNEL_REJECT_ADAPTIVE_GEOMETRY: return "REJECT_ADAPTIVE_GEOMETRY";
+      case FUNNEL_REJECT_PRICE_INVALIDATION: return "REJECT_PRICE_INVALIDATION";
+      case FUNNEL_REJECT_STOPS_LEVEL: return "REJECT_STOPS_LEVEL";
+      case FUNNEL_REJECT_SETUP_SPREAD: return "REJECT_SETUP_SPREAD";
+      case FUNNEL_REJECT_LIMIT_RULE: return "REJECT_LIMIT_RULE";
+      case FUNNEL_REJECT_DIRECTION: return "REJECT_DIRECTION";
+      case FUNNEL_REJECT_EXISTING_EXPOSURE: return "REJECT_EXISTING_EXPOSURE";
+      case FUNNEL_REJECT_SIZE_INVALID: return "REJECT_SIZE_INVALID";
+      case FUNNEL_REJECT_SIZE_MIN_LOT: return "REJECT_SIZE_MIN_LOT";
+      case FUNNEL_REJECT_SIZE_RISK: return "REJECT_SIZE_RISK";
+      case FUNNEL_REJECT_SIZE_MARGIN: return "REJECT_SIZE_MARGIN";
+      case FUNNEL_REJECT_PARTIAL_UNSPLITTABLE: return "REJECT_PARTIAL_UNSPLITTABLE";
+      case FUNNEL_ORDER_SEND: return "ORDER_SEND";
+      case FUNNEL_ORDER_PLACED: return "ORDER_PLACED";
+      case FUNNEL_ORDER_SEND_FAILED: return "ORDER_SEND_FAILED";
+      case FUNNEL_PENDING_CANCEL_GUARD: return "PENDING_CANCEL_GUARD";
+      case FUNNEL_PENDING_CANCEL_MTF: return "PENDING_CANCEL_MTF";
+      case FUNNEL_PENDING_CANCEL_PRICE: return "PENDING_CANCEL_PRICE";
+      case FUNNEL_PENDING_CANCEL_AGE: return "PENDING_CANCEL_AGE";
+      case FUNNEL_PENDING_CANCEL_OPPOSITE: return "PENDING_CANCEL_OPPOSITE";
+      case FUNNEL_PARTIAL_EXECUTED: return "PARTIAL_EXECUTED";
+      case FUNNEL_PARTIAL_FAILED: return "PARTIAL_FAILED";
+      default: return "UNKNOWN";
+   }
+}
+
+void RecordFunnel(const ENUM_FUNNEL_EVENT event)
+{
+   int index = (int)event;
+   if (index >= 0 && index < (int)FUNNEL_EVENT_COUNT)
+      m_funnel[index]++;
+}
+
+bool RejectSizing(const ENUM_FUNNEL_EVENT event)
+{
+   RecordFunnel(event);
+   return false;
+}
+
+void EmitFunnelSummary()
+{
+   Print("FUNNEL_SUMMARY_BEGIN|schema=1");
+   for (int i = 0; i < (int)FUNNEL_EVENT_COUNT; i++)
+      PrintFormat("FUNNEL|%s|%I64d", FunnelEventName((ENUM_FUNNEL_EVENT)i), m_funnel[i]);
+   Print("FUNNEL_SUMMARY_END|schema=1");
+}
+
+//+------------------------------------------------------------------+
+//| Indicator Handle Management Helper                               |
+//+------------------------------------------------------------------+
+void ReleaseAllHandles()
+{
+   if (m_rsi_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_rsi_handle);
+      m_rsi_handle = INVALID_HANDLE;
+   }
+
+   if (m_atr_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_atr_handle);
+      m_atr_handle = INVALID_HANDLE;
+   }
+
+   if (m_mtf_ema_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_mtf_ema_handle);
+      m_mtf_ema_handle = INVALID_HANDLE;
+   }
+
+   if (m_mtf_rsi_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_mtf_rsi_handle);
+      m_mtf_rsi_handle = INVALID_HANDLE;
+   }
+
+   if (m_vol_fast_atr_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_vol_fast_atr_handle);
+      m_vol_fast_atr_handle = INVALID_HANDLE;
+   }
+
+   if (m_vol_slow_atr_handle != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_vol_slow_atr_handle);
+      m_vol_slow_atr_handle = INVALID_HANDLE;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   ArrayInitialize(m_funnel, 0);
+
+   // 1. Non-bypassable demo/tester guard. The input is retained for preset
+   // compatibility, but false is rejected by ValidateInputs().
+   if (!IsStrictDemoContext())
+   {
+      Print("CRITICAL ERROR: [RSIFibEA] Only Strategy Tester or a demo account is allowed. EA execution aborted.");
+      return INIT_FAILED;
+   }
+
+   // 2. Validate Inputs
+   if (!ValidateInputs())
+   {
+      Print("CRITICAL ERROR: [RSIFibEA] Input parameter validation failed!");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   if (!InitNewsSource())
+   {
+      Print("CRITICAL ERROR: [RSIFibEA] Economic-calendar source initialization failed closed.");
+      return INIT_PARAMETERS_INCORRECT;
+   }
+
+   m_timeframe = (InpSignalTimeframe == PERIOD_CURRENT) ? (ENUM_TIMEFRAMES)_Period : InpSignalTimeframe;
+
+   // A lifecycle cutoff blocks new exposure, but must never prevent restart
+   // reconciliation of an already managed pending order or position.
+   bool initial_lifecycle_ok = CheckContractLifecycle();
+   if (!initial_lifecycle_ok)
+   {
+      Print("GUARD REJECT: [RSIFibEA] Contract lifecycle blocks new exposure; existing managed exposure will still be synchronized.");
+   }
+
+   // 3. Initialize Indicator Handles
+   m_rsi_handle = iRSI(_Symbol, m_timeframe, InpRSI_Period, InpRSI_AppliedPrice);
+   if (m_rsi_handle == INVALID_HANDLE)
+   {
+      PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create iRSI handle (Error: %d)", GetLastError());
+      ReleaseAllHandles();
+      return INIT_FAILED;
+   }
+
+   if (InpMinRangeATR > 0.0 || InpMaxRangeATR > 0.0 || InpUseAdaptiveSL ||
+       InpUseAdaptiveTP || InpUseSweepBuffer)
+   {
+      m_atr_handle = iATR(_Symbol, m_timeframe, InpATR_Period);
+      if (m_atr_handle == INVALID_HANDLE)
+      {
+         PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create iATR handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
+         return INIT_FAILED;
+      }
+   }
+
+   if (InpUseMTFTrendFilter)
+   {
+      ENUM_TIMEFRAMES eval_tf = (InpMTFTimeframe == PERIOD_CURRENT) ? m_timeframe : InpMTFTimeframe;
+      m_mtf_ema_handle = iMA(_Symbol, eval_tf, InpMTFEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
+      if (m_mtf_ema_handle == INVALID_HANDLE)
+      {
+         PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create MTF iMA handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
+         return INIT_FAILED;
+      }
+
+      if (InpMTFUseRSIConfirm)
+      {
+         m_mtf_rsi_handle = iRSI(_Symbol, eval_tf, InpMTFRSIPeriod, PRICE_CLOSE);
+         if (m_mtf_rsi_handle == INVALID_HANDLE)
+         {
+            PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create MTF iRSI handle (Error: %d)", GetLastError());
+            ReleaseAllHandles();
+            return INIT_FAILED;
+         }
+      }
+   }
+
+   if (InpUseVolatilityRegime)
+   {
+      m_vol_fast_atr_handle = iATR(_Symbol, m_timeframe, InpVolFastATRPeriod);
+      if (m_vol_fast_atr_handle == INVALID_HANDLE)
+      {
+         PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create Fast iATR handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
+         return INIT_FAILED;
+      }
+
+      m_vol_slow_atr_handle = iATR(_Symbol, m_timeframe, InpVolSlowATRPeriod);
+      if (m_vol_slow_atr_handle == INVALID_HANDLE)
+      {
+         PrintFormat("CRITICAL ERROR: [RSIFibEA] Failed to create Slow iATR handle (Error: %d)", GetLastError());
+         ReleaseAllHandles();
+         return INIT_FAILED;
+      }
+   }
+
+   // 4. Configure Trade Object & Object Prefix
+   m_trade.SetExpertMagicNumber(InpMagicNumber);
+   m_trade.SetMarginMode();
+   if (!m_trade.SetTypeFillingBySymbol(_Symbol))
+      Print("WARNING: [RSIFibEA] Broker filling policy could not be inferred; using RETURN for pending orders.");
+   // MQL5 specifies ORDER_FILLING_RETURN for pending orders regardless of execution mode.
+   m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+   m_trade.SetAsyncMode(false);
+
+   m_safety_trade.SetExpertMagicNumber(InpMagicNumber);
+   m_safety_trade.SetMarginMode();
+   if (!m_safety_trade.SetTypeFillingBySymbol(_Symbol))
+      Print("WARNING: [RSIFibEA] Safety-close filling policy could not be inferred from the symbol.");
+   m_safety_trade.SetAsyncMode(false);
+
+   m_obj_prefix = "RSIFib_" + IntegerToString((long)InpMagicNumber) + "_" + _Symbol + "_";
+   m_setup.Reset();
+
+   // 5. Initial Sync
+   SyncState();
+   bool lifecycle_service_ok = EnforceContractCutoffExposure();
+   m_last_bar_time = iTime(_Symbol, m_timeframe, 0);
+   if (m_state == STATE_IDLE)
+      m_last_status = (initial_lifecycle_ok && lifecycle_service_ok)
+                      ? "ready"
+                      : "contract lifecycle blocks entries";
+
+   PrintFormat("SUCCESS: [RSIFibEA] Initialized cleanly. Symbol: %s, Magic: %llu, State: %s",
+               _Symbol, InpMagicNumber, EnumToString(m_state));
+
+   return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   EmitFunnelSummary();
+   ReleaseAllHandles();
+   RemoveChartObjects();
+   Comment("");
+
+   PrintFormat("INFO: [RSIFibEA] Deinitialized. Reason code: %d", reason);
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   // Re-check before synchronization: SyncState() may otherwise delete or
+   // modify broker objects while reconciling an unsafe runtime context.
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard failed at runtime");
+      return;
+   }
+
+   // Detect New Closed Bar
+   bool is_new_bar = false;
+   long series_bar_time = 0;
+   datetime current_bar_time = 0;
+   if (SeriesInfoInteger(_Symbol, m_timeframe, SERIES_LASTBAR_DATE, series_bar_time))
+      current_bar_time = (datetime)series_bar_time;
+   if (current_bar_time > 0 && current_bar_time != m_last_bar_time)
+   {
+      m_last_bar_time = current_bar_time;
+      is_new_bar = true;
+   }
+
+   // Broker scans are event-driven and coalesced, with a bounded watchdog.
+   MaybeSyncState(is_new_bar);
+   bool lifecycle_service_ok = EnforceContractCutoffExposure();
+   UpdateDashboard();
+
+   // At the futures cutoff, service existing exposure and never execute the
+   // strategy state machine. Failed broker mutations remain queued for retry.
+   if (!lifecycle_service_ok)
+      return;
+
+   // Check system permissions after synchronization so unsafe states remain visible.
+   if (!IsTradeAllowed())
+      return;
+
+   // Execute State Logic
+   switch (m_state)
+   {
+      case STATE_IDLE:
+         if (is_new_bar)
+            ProcessStateIdle();
+         break;
+
+      case STATE_WAITING_FOR_ANCHOR:
+         if (is_new_bar)
+            ProcessStateWaitingForAnchor();
+         break;
+
+      case STATE_PENDING_ORDER:
+         ProcessStatePendingOrder(is_new_bar);
+         break;
+
+      case STATE_IN_POSITION:
+         ProcessStateInPosition(is_new_bar);
+         break;
+
+      case STATE_FAULT:
+         // A fault is reconciled by the broker-state service. Never open new risk here.
+         break;
+   }
+}
+
+// Keep this handler intentionally tiny: MT5 transaction arrival order is not guaranteed.
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest &request,
+                        const MqlTradeResult &result)
+{
+   bool relevant = (trans.symbol == _Symbol);
+   if (trans.type == TRADE_TRANSACTION_REQUEST)
+      relevant = relevant || (request.symbol == _Symbol);
+
+   if (relevant)
+      m_sync_required = true;
+   if (relevant &&
+       (trans.type == TRADE_TRANSACTION_DEAL_ADD ||
+        trans.type == TRADE_TRANSACTION_DEAL_UPDATE ||
+        trans.type == TRADE_TRANSACTION_DEAL_DELETE))
+      m_daily_stats_dirty = true;
+}
+
+double OnTester(void)
+{
+   double trades = TesterStatistics(STAT_TRADES);
+   double profit = TesterStatistics(STAT_PROFIT);
+   double profit_factor = TesterStatistics(STAT_PROFIT_FACTOR);
+   double sharpe = TesterStatistics(STAT_SHARPE_RATIO);
+   double drawdown = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+
+   if (!MathIsValidNumber(trades) || !MathIsValidNumber(profit) ||
+       !MathIsValidNumber(profit_factor) || !MathIsValidNumber(sharpe) ||
+       !MathIsValidNumber(drawdown) || trades < (double)InpTesterMinTrades ||
+       profit <= 0.0 || profit_factor < 0.0 || sharpe <= 0.0 ||
+       drawdown < 0.0 || drawdown > InpTesterMaxDDPct)
+      return -1.0;
+
+   double capped_pf = MathMin(profit_factor, InpTesterPFCap);
+   double capped_sharpe = MathMin(sharpe, InpTesterSharpeCap);
+   double trade_weight = MathMin(1.0, MathSqrt(trades / (double)InpTesterTargetTrades));
+   double dd_weight = 1.0 - drawdown / InpTesterMaxDDPct;
+   double score = capped_sharpe * MathSqrt(capped_pf) * trade_weight * dd_weight * dd_weight;
+
+   return MathIsValidNumber(score) ? score : -1.0;
+}
+
+//+------------------------------------------------------------------+
+//| STATE PROCESSORS                                                 |
+//+------------------------------------------------------------------+
+
+//--- State: IDLE -> Looking for RSI crossover on closed bars
+void ProcessStateIdle()
+{
+   double rsi_1 = 0.0, rsi_2 = 0.0;
+   if (!GetClosedRSIPair(rsi_1, rsi_2))
+      return;
+
+   bool buy_signal  = (rsi_2 <= InpOversoldLevel && rsi_1 > InpOversoldLevel);
+   bool sell_signal = (rsi_2 >= InpOverboughtLevel && rsi_1 < InpOverboughtLevel);
+
+   if (!buy_signal && !sell_signal)
+      return;
+
+   ENUM_SIGNAL_DIR candidate_dir = buy_signal ? SIGNAL_BUY : SIGNAL_SELL;
+   RecordFunnel(FUNNEL_RSI_CROSS);
+
+   // Measure direction-policy rejections instead of erasing the raw RSI
+   // signal. This keeps long/short research visible in the funnel.
+   if (!IsSignalDirectionEnabled(candidate_dir))
+   { RecordFunnel(FUNNEL_REJECT_DIRECTION_POLICY); return; }
+
+   // Evaluate the funnel sequentially so every signal has one stable,
+   // machine-readable first-failure reason.
+   if (!CheckRSIQualityFilter(candidate_dir, rsi_1, rsi_2))
+   { RecordFunnel(FUNNEL_REJECT_RSI_QUALITY); return; }
+   if (!CheckRSIDivergenceFilter(candidate_dir))
+   { RecordFunnel(FUNNEL_REJECT_RSI_DIVERGENCE); return; }
+   if (!CheckMarketStructureFilter(candidate_dir))
+   { RecordFunnel(FUNNEL_REJECT_MARKET_STRUCTURE); return; }
+   if (!CheckMTFTrendFilter(candidate_dir))
+   { RecordFunnel(FUNNEL_REJECT_MTF_TREND); return; }
+   if (!CheckVolatilityRegimeFilter())
+   { RecordFunnel(FUNNEL_REJECT_VOLATILITY); return; }
+   if (!CheckEconomicCalendarFilter())
+   { RecordFunnel(FUNNEL_REJECT_NEWS); return; }
+   if (!CheckRiskGuards())
+   { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); return; }
+   if (!CheckPortfolioLimits())
+   { RecordFunnel(FUNNEL_REJECT_PORTFOLIO); return; }
+   if (!CheckSpread())
+   { RecordFunnel(FUNNEL_REJECT_SPREAD); return; }
+   if (!CheckSession())
+   { RecordFunnel(FUNNEL_REJECT_SESSION); return; }
+   if (!CheckContractLifecycle())
+   { RecordFunnel(FUNNEL_REJECT_CONTRACT); return; }
+
+   m_setup.Reset();
+   m_setup.dir = candidate_dir;
+   m_setup.signal_time = iTime(_Symbol, m_timeframe, 1);
+   m_state = STATE_WAITING_FOR_ANCHOR;
+   RecordFunnel(FUNNEL_SIGNAL_ACCEPTED);
+
+   if (InpVerboseLog)
+      PrintFormat("SIGNAL: [RSIFibEA] %s RSI crossover confirmed at bar 1 (%s). Waiting for anchor...",
+                  (m_setup.dir == SIGNAL_BUY ? "BUY" : "SELL"), TimeToString(m_setup.signal_time));
+}
+
+//--- State: WAITING_FOR_ANCHOR -> Searching for first opposite closed candle
+void ProcessStateWaitingForAnchor()
+{
+   if (!CheckContractLifecycle())
+   {
+      RecordFunnel(FUNNEL_REJECT_CONTRACT);
+      Print("INFO: [RSIFibEA] Contract lifecycle changed while waiting for anchor. Setup cancelled.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   int bars_since_signal = iBarShift(_Symbol, m_timeframe, m_setup.signal_time);
+
+   if (bars_since_signal < 0)
+   {
+      RecordFunnel(FUNNEL_REJECT_ANCHOR_HISTORY);
+      Print("WARNING: [RSIFibEA] Signal bar is no longer available. Setup reset.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   int completed_bars_after_signal = bars_since_signal - 1;
+
+   // Check expiration of anchor window
+   if (completed_bars_after_signal > InpAnchorWaitBars)
+   {
+      RecordFunnel(FUNNEL_REJECT_ANCHOR_TIMEOUT);
+      if (InpVerboseLog)
+         PrintFormat("INFO: [RSIFibEA] Anchor wait timeout (%d bars passed > max %d). Resetting to IDLE.",
+                     completed_bars_after_signal, InpAnchorWaitBars);
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Minimum impulse bars check
+   if (completed_bars_after_signal < InpMinImpulseBars)
+      return;
+
+   // A fresh opposite RSI regime invalidates the directional thesis before an anchor exists.
+   double rsi_1 = 0.0, rsi_2 = 0.0;
+   if (GetClosedRSIPair(rsi_1, rsi_2))
+   {
+      bool buy_signal  = (rsi_2 <= InpOversoldLevel && rsi_1 > InpOversoldLevel);
+      bool sell_signal = (rsi_2 >= InpOverboughtLevel && rsi_1 < InpOverboughtLevel);
+      if ((m_setup.dir == SIGNAL_BUY && sell_signal) ||
+          (m_setup.dir == SIGNAL_SELL && buy_signal))
+      {
+         RecordFunnel(FUNNEL_REJECT_OPPOSITE_SIGNAL);
+         Print("INFO: [RSIFibEA] Opposite RSI signal appeared while waiting for anchor. Setup cancelled.");
+         ResetSetupToIdle();
+         return;
+      }
+   }
+
+   // Check if closed candle at shift 1 is opposite direction
+   double close1 = iClose(_Symbol, m_timeframe, 1);
+   double open1  = iOpen(_Symbol, m_timeframe, 1);
+
+   if (close1 <= 0.0 || open1 <= 0.0 || !MathIsValidNumber(close1) || !MathIsValidNumber(open1))
+      return;
+
+   bool is_opposite = false;
+   if (m_setup.dir == SIGNAL_BUY)
+      is_opposite = (close1 < open1); // Bearish candle
+   else if (m_setup.dir == SIGNAL_SELL)
+      is_opposite = (close1 > open1); // Bullish candle
+
+   if (!is_opposite)
+      return; // Keep waiting
+
+   // Found opposite candle! Compute P0 and P1
+   m_setup.anchor_time = iTime(_Symbol, m_timeframe, 1);
+   int window_start_shift = 1;
+   int window_end_shift = bars_since_signal;
+
+   bool anchor_ok = (m_setup.dir == SIGNAL_BUY)
+                    ? ComputeBuyAnchorLevels(window_start_shift, window_end_shift)
+                    : ComputeSellAnchorLevels(window_start_shift, window_end_shift);
+
+   if (!anchor_ok || m_setup.range <= 0.0)
+   {
+      RecordFunnel(FUNNEL_REJECT_ANCHOR_RANGE);
+      if (InpVerboseLog)
+         PrintFormat("WARNING: [RSIFibEA] Invalid anchor range R=%.5f <= 0. Setup aborted.", m_setup.range);
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Check ATR Range filter
+   if (!CheckATRRangeFilter(m_setup.range))
+   {
+      RecordFunnel(FUNNEL_REJECT_ATR_RANGE);
+      if (InpVerboseLog)
+         PrintFormat("INFO: [RSIFibEA] Setup range %.5f rejected by ATR filter bounds. Setup aborted.", m_setup.range);
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Compute and validate tick-aligned prices
+   if (!ComputeFibPrices())
+   {
+      RecordFunnel(FUNNEL_REJECT_FIB_GEOMETRY);
+      Print("WARNING: [RSIFibEA] Fib prices became invalid after tick-size normalization. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Adapt SL/TP to the chart's actual volatility if enabled
+   if (!AdaptSLTPToVolatility())
+   {
+      RecordFunnel(FUNNEL_REJECT_ADAPTIVE_GEOMETRY);
+      if (InpVerboseLog)
+         Print("WARNING: [RSIFibEA] Adaptive SL/TP adjustment failed or geometry invalid. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Pre-placement Invalidation Check
+   if (IsSetupInvalidatedByPrice())
+   {
+      RecordFunnel(FUNNEL_REJECT_PRICE_INVALIDATION);
+      if (InpVerboseLog)
+         Print("INFO: [RSIFibEA] Setup invalidated by pre-placement price action. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Check Stops Level
+   if (!CheckStopsLevel(m_setup.entry_price, m_setup.stop_price, m_setup.target_price))
+   {
+      RecordFunnel(FUNNEL_REJECT_STOPS_LEVEL);
+      if (InpVerboseLog)
+         Print("INFO: [RSIFibEA] Fib levels violate broker SYMBOL_TRADE_STOPS_LEVEL. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   if (!CheckSetupSpread())
+   {
+      RecordFunnel(FUNNEL_REJECT_SETUP_SPREAD);
+      if (InpVerboseLog)
+         Print("INFO: [RSIFibEA] Spread is too large relative to the Entry-to-SL risk distance. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Check Order Placement Rules (Buy Limit requires Entry < Ask, Sell Limit requires Entry > Bid)
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if (m_setup.dir == SIGNAL_BUY && m_setup.entry_price >= ask)
+   {
+      RecordFunnel(FUNNEL_REJECT_LIMIT_RULE);
+      if (InpVerboseLog)
+         PrintFormat("INFO: [RSIFibEA] Buy Limit entry %.5f >= Ask %.5f. Cannot place Limit order. Setup aborted.",
+                     m_setup.entry_price, ask);
+      ResetSetupToIdle();
+      return;
+   }
+   if (m_setup.dir == SIGNAL_SELL && m_setup.entry_price <= bid)
+   {
+      RecordFunnel(FUNNEL_REJECT_LIMIT_RULE);
+      if (InpVerboseLog)
+         PrintFormat("INFO: [RSIFibEA] Sell Limit entry %.5f <= Bid %.5f. Cannot place Limit order. Setup aborted.",
+                     m_setup.entry_price, bid);
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Re-verify the macro thesis and risk guards before ordering. The anchor
+   // may appear several M15 bars after the original RSI cross.
+   if (!IsSignalDirectionEnabled(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_DIRECTION_POLICY); ResetSetupToIdle(); return; }
+   if (!CheckMTFTrendFilter(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_MTF_TREND); ResetSetupToIdle(); return; }
+   if (!CheckRiskGuards())
+   { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); ResetSetupToIdle(); return; }
+   if (!CheckPortfolioLimits())
+   { RecordFunnel(FUNNEL_REJECT_PORTFOLIO); ResetSetupToIdle(); return; }
+   if (!CheckSpread())
+   { RecordFunnel(FUNNEL_REJECT_SPREAD); ResetSetupToIdle(); return; }
+   if (!CheckSession())
+   { RecordFunnel(FUNNEL_REJECT_SESSION); ResetSetupToIdle(); return; }
+   if (!CheckContractLifecycle())
+   { RecordFunnel(FUNNEL_REJECT_CONTRACT); ResetSetupToIdle(); return; }
+
+   if (!IsDirectionAllowed(m_setup.dir))
+   {
+      RecordFunnel(FUNNEL_REJECT_DIRECTION);
+      Print("GUARD REJECT: Broker symbol mode does not allow this trade direction. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   // On netting accounts, any foreign/manual position on this symbol would be merged
+   // with the EA trade. Refuse all pre-existing exposure on the symbol in every mode.
+   if (HasAnySymbolExposure())
+   {
+      RecordFunnel(FUNNEL_REJECT_EXISTING_EXPOSURE);
+      Print("GUARD REJECT: Existing order or position detected on this symbol. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Position Sizing
+   ENUM_ORDER_TYPE order_type = (m_setup.dir == SIGNAL_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+   double vol = 0.0;
+   if (!CalculatePositionSize(m_setup.entry_price, m_setup.stop_price, order_type, vol))
+   {
+      if (InpVerboseLog)
+         Print("WARNING: [RSIFibEA] Position sizing failed or volume < min lot. Setup aborted.");
+      ResetSetupToIdle();
+      return;
+   }
+
+   double partial_close_volume = 0.0;
+   double partial_remaining_volume = 0.0;
+   if (InpUsePartialTP &&
+       !CanSplitVolume(vol, InpPartialClosePercent,
+                       partial_close_volume, partial_remaining_volume))
+   {
+      RecordFunnel(FUNNEL_REJECT_PARTIAL_UNSPLITTABLE);
+      PrintFormat("PARTIAL_REJECT_UNSPLITTABLE|volume=%.8f|percent=%.4f|min=%.8f|step=%.8f",
+                  vol, InpPartialClosePercent,
+                  SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN),
+                  SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP));
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Send Pending Limit Order
+   ExecutePendingOrder(order_type, vol);
+}
+
+//--- State: PENDING_ORDER -> Monitoring placed order for expiry, invalidation, or execution
+void ProcessStatePendingOrder(bool is_new_bar)
+{
+   if (m_setup.pending_ticket <= 0)
+   {
+      ResetSetupToIdle();
+      return;
+   }
+
+   // Conditions can deteriorate after placement. Cancellation reduces exposure,
+   // although a broker-side fill can still race the cancellation request.
+   if (!CheckRiskGuards() || !CheckSpread() || !CheckSetupSpread() ||
+       !CheckSession() || !CheckContractLifecycle())
+   {
+      RecordFunnel(FUNNEL_PENDING_CANCEL_GUARD);
+      Print("INFO: [RSIFibEA] Pending order no longer satisfies risk/spread/session/contract guards. Cancelling.");
+      CancelPendingOrder();
+      return;
+   }
+
+   // Keep the closed-bar H1 trend thesis valid until the broker fills the
+   // pending order. A broker-side fill can still race a cancellation request.
+   if (!IsSignalDirectionEnabled(m_setup.dir))
+   {
+      RecordFunnel(FUNNEL_PENDING_CANCEL_GUARD);
+      Print("INFO: [RSIFibEA] Pending order no longer satisfies the configured direction policy. Cancelling.");
+      CancelPendingOrder();
+      return;
+   }
+   if (!CheckMTFTrendFilter(m_setup.dir))
+   {
+      RecordFunnel(FUNNEL_PENDING_CANCEL_MTF);
+      Print("INFO: [RSIFibEA] Pending order no longer satisfies the closed-bar MTF trend filter. Cancelling.");
+      CancelPendingOrder();
+      return;
+   }
+
+   // Check price invalidation on every tick
+   if (IsSetupInvalidatedByPrice())
+   {
+      RecordFunnel(FUNNEL_PENDING_CANCEL_PRICE);
+      Print("INFO: [RSIFibEA] Pending order setup invalidated by price touching Stop/Target. Cancelling order.");
+      CancelPendingOrder();
+      return;
+   }
+
+   if (is_new_bar)
+   {
+      // Check order lifespan in bars
+      int bars_passed = iBarShift(_Symbol, m_timeframe, m_setup.pending_order_time);
+      if (bars_passed < 0)
+      {
+         RecordFunnel(FUNNEL_PENDING_CANCEL_AGE);
+         Print("WARNING: [RSIFibEA] Pending order age cannot be determined. Cancelling defensively.");
+         CancelPendingOrder();
+         return;
+      }
+      if (bars_passed >= InpPendingOrderBars)
+      {
+         RecordFunnel(FUNNEL_PENDING_CANCEL_AGE);
+         PrintFormat("INFO: [RSIFibEA] Pending order expired (%d bars passed >= max %d). Cancelling order.",
+                     bars_passed, InpPendingOrderBars);
+         CancelPendingOrder();
+         return;
+      }
+
+      // Check opposite RSI signal
+      double rsi_1 = 0.0, rsi_2 = 0.0;
+      if (GetClosedRSIPair(rsi_1, rsi_2))
+      {
+         bool buy_signal  = (rsi_2 <= InpOversoldLevel && rsi_1 > InpOversoldLevel);
+         bool sell_signal = (rsi_2 >= InpOverboughtLevel && rsi_1 < InpOverboughtLevel);
+
+         if ((m_setup.dir == SIGNAL_BUY && sell_signal) || (m_setup.dir == SIGNAL_SELL && buy_signal))
+         {
+            RecordFunnel(FUNNEL_PENDING_CANCEL_OPPOSITE);
+            Print("INFO: [RSIFibEA] Opposite RSI signal confirmed! Cancelling pending order.");
+            CancelPendingOrder();
+            return;
+         }
+      }
+   }
+}
+
+//--- State: IN_POSITION -> Position monitoring
+void ProcessStateInPosition(bool is_new_bar)
+{
+   // Friday EOD protection
+   if (InpCloseFridayEOD && m_setup.position_ticket > 0)
+   {
+      MqlDateTime dt;
+      TimeCurrent(dt);
+      if (dt.day_of_week == 5 && dt.hour >= InpFridayCloseHour)
+      {
+         PrintFormat("FRIDAY EOD: [RSIFibEA] Closing position #%llu before weekend close.", m_setup.position_ticket);
+         ExecuteManagedPositionClose(m_setup.position_ticket, "FRIDAY_EOD");
+         return;
+      }
+   }
+
+   // Stagnation / Time-Decay Exit
+   // Once the threshold is reached this runs on every tick. Failed broker
+   // requests are throttled by ExecuteManagedPositionClose and retried instead
+   // of being silently deferred until the next bar.
+   if (InpUseStagnationExit && m_setup.position_ticket > 0)
+   {
+      if (PositionSelectByTicket(m_setup.position_ticket))
+      {
+         datetime pos_time = (datetime)PositionGetInteger(POSITION_TIME);
+         int bars_held = iBarShift(_Symbol, m_timeframe, pos_time);
+         if (bars_held >= InpStagnationMaxBars)
+         {
+            double cur_profit = PositionGetDouble(POSITION_PROFIT);
+            if (cur_profit <= 0.0)
+            {
+               PrintFormat("STAGNATION: [RSIFibEA] Position #%llu held for %d bars without momentum. Closing at market.",
+                           m_setup.position_ticket, bars_held);
+               ExecuteManagedPositionClose(m_setup.position_ticket, "STAGNATION");
+               return;
+            }
+         }
+      }
+   }
+
+   // Partial Take-Profit Execution
+   if (InpUsePartialTP && !m_setup.partial_tp_closed && !m_setup.partial_tp_disabled &&
+       m_setup.partial_tp_price > 0.0 && m_setup.position_ticket > 0)
+   {
+      MqlTick tick;
+      if (SymbolInfoTick(_Symbol, tick) && tick.bid > 0.0 && tick.ask > 0.0)
+      {
+         bool tp1_reached = (m_setup.dir == SIGNAL_BUY && tick.bid >= m_setup.partial_tp_price) ||
+                            (m_setup.dir == SIGNAL_SELL && tick.ask <= m_setup.partial_tp_price);
+         if (tp1_reached && PositionSelectByTicket(m_setup.position_ticket))
+         {
+            double cur_vol = PositionGetDouble(POSITION_VOLUME);
+            double close_vol = 0.0;
+            double remaining_vol = 0.0;
+
+            if (!CanSplitVolume(cur_vol, InpPartialClosePercent,
+                                close_vol, remaining_vol))
+            {
+               m_setup.partial_tp_disabled = true;
+               RecordFunnel(FUNNEL_REJECT_PARTIAL_UNSPLITTABLE);
+               PrintFormat("PARTIAL_DISABLED_UNSPLITTABLE|ticket=%llu|volume=%.8f|percent=%.4f|min=%.8f|step=%.8f",
+                           m_setup.position_ticket, cur_vol, InpPartialClosePercent,
+                           SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN),
+                           SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP));
+            }
+            else if (m_last_partial_attempt == 0 ||
+                     TimeCurrent() - m_last_partial_attempt >= 1)
+            {
+               m_last_partial_attempt = TimeCurrent();
+               if (ExecuteManagedPartialClose(m_setup.position_ticket, close_vol))
+               {
+                  m_setup.partial_tp_closed = true;
+                  m_sync_required = true;
+                  RecordFunnel(FUNNEL_PARTIAL_EXECUTED);
+                  PrintFormat("PARTIAL_EXECUTED|ticket=%llu|closed=%.8f|remaining=%.8f|price=%.5f",
+                              m_setup.position_ticket, close_vol, remaining_vol,
+                              (m_setup.dir == SIGNAL_BUY ? tick.bid : tick.ask));
+
+                  if (InpPartialLockBE && PositionSelectByTicket(m_setup.position_ticket))
+                  {
+                     double entry_px = PositionGetDouble(POSITION_PRICE_OPEN);
+                     double remaining_position_volume = PositionGetDouble(POSITION_VOLUME);
+                     double desired_sl = 0.0;
+                     double cur_tp = PositionGetDouble(POSITION_TP);
+                     bool be_calculated = CalculateCostAwareBreakEvenStop(
+                        m_setup.dir, entry_px, remaining_position_volume, desired_sl);
+                     bool modified = false;
+                     if (be_calculated)
+                        modified = m_safety_trade.PositionModify(
+                           m_setup.position_ticket, desired_sl, cur_tp);
+                     uint modify_retcode = m_safety_trade.ResultRetcode();
+                     if (be_calculated && modified &&
+                         (modify_retcode == TRADE_RETCODE_DONE ||
+                          modify_retcode == TRADE_RETCODE_NO_CHANGES))
+                        PrintFormat("PARTIAL_BE_CONFIRMED|ticket=%llu|sl=%.5f",
+                                    m_setup.position_ticket, desired_sl);
+                     else
+                        PrintFormat("PARTIAL_BE_FAILED|ticket=%llu|calculated=%s|sl=%.5f|retcode=%u|description=%s",
+                                    m_setup.position_ticket,
+                                    be_calculated ? "true" : "false",
+                                    desired_sl, modify_retcode,
+                                    m_safety_trade.ResultRetcodeDescription());
+                  }
+               }
+               else
+               {
+                  RecordFunnel(FUNNEL_PARTIAL_FAILED);
+                  m_sync_required = true;
+               }
+            }
+         }
+      }
+   }
+
+   if (InpUseRiskTrailingStop)
+      CheckAndApplyRiskTrailingStop();
+   else if (InpUseFibTrailingStop)
+      CheckAndApplyFibTrailingStop();
+   else if (InpUseBreakEven)
+      CheckAndApplyBreakEven();
+
+   // Managed automatically by MT5 broker SL/TP orders attached to position.
+   // Additional risk guards if required:
+   if (is_new_bar && !CheckRiskGuards())
+   {
+      // Note: optional emergency exit if risk limits breached
+      if (InpVerboseLog)
+         Print("INFO: [RSIFibEA] Position active while daily risk limits reached. Letting SL/TP manage position.");
+   }
+}
+
+//+------------------------------------------------------------------+
+//| HELPER CALCULATION & EXECUTION FUNCTIONS                         |
+//+------------------------------------------------------------------+
+
+bool ComputeBuyAnchorLevels(int start_shift, int end_shift)
+{
+   if (start_shift < 1 || end_shift < start_shift)
+      return false;
+
+   double highest_high = iHigh(_Symbol, m_timeframe, start_shift);
+   double retracement_low = iLow(_Symbol, m_timeframe, 1);
+   if (highest_high <= 0.0 || retracement_low <= 0.0 ||
+       !MathIsValidNumber(highest_high) || !MathIsValidNumber(retracement_low))
+      return false;
+
+   for (int s = start_shift; s <= end_shift; s++)
+   {
+      double h = iHigh(_Symbol, m_timeframe, s);
+      if (h <= 0.0 || !MathIsValidNumber(h))
+         return false;
+      if (h > highest_high)
+         highest_high = h;
+   }
+   m_setup.P1 = highest_high;
+   m_setup.P0 = retracement_low;
+   m_setup.range = m_setup.P1 - m_setup.P0;
+   return (m_setup.range > 0.0 && MathIsValidNumber(m_setup.range));
+}
+
+bool ComputeSellAnchorLevels(int start_shift, int end_shift)
+{
+   if (start_shift < 1 || end_shift < start_shift)
+      return false;
+
+   double lowest_low = iLow(_Symbol, m_timeframe, start_shift);
+   double retracement_high = iHigh(_Symbol, m_timeframe, 1);
+   if (lowest_low <= 0.0 || retracement_high <= 0.0 ||
+       !MathIsValidNumber(lowest_low) || !MathIsValidNumber(retracement_high))
+      return false;
+
+   for (int s = start_shift; s <= end_shift; s++)
+   {
+      double l = iLow(_Symbol, m_timeframe, s);
+      if (l <= 0.0 || !MathIsValidNumber(l))
+         return false;
+      if (l < lowest_low)
+         lowest_low = l;
+   }
+   m_setup.P1 = lowest_low;
+   m_setup.P0 = retracement_high;
+   m_setup.range = m_setup.P0 - m_setup.P1;
+   return (m_setup.range > 0.0 && MathIsValidNumber(m_setup.range));
+}
+
+bool ComputeFibPrices()
+{
+   double raw_entry = 0.0;
+   double raw_stop = 0.0;
+   double raw_target = 0.0;
+   double raw_visual_target = 0.0;
+
+   if (m_setup.dir == SIGNAL_BUY)
+   {
+      raw_entry         = m_setup.P0 + InpEntryRatio * m_setup.range;
+      raw_stop          = m_setup.P0 + InpStopRatio * m_setup.range;
+      raw_target        = m_setup.P0 + InpTargetRatio * m_setup.range;
+      raw_visual_target = m_setup.P0 + InpVisualTargetRatio * m_setup.range;
+
+      m_setup.entry_price         = NormalizePriceDirectional(raw_entry, -1);
+      m_setup.stop_price          = NormalizePriceDirectional(raw_stop, -1);
+      m_setup.target_price        = NormalizePriceDirectional(raw_target, -1);
+      m_setup.visual_target_price = NormalizePriceDirectional(raw_visual_target, 0);
+   }
+   else if (m_setup.dir == SIGNAL_SELL)
+   {
+      raw_entry         = m_setup.P0 - InpEntryRatio * m_setup.range;
+      raw_stop          = m_setup.P0 - InpStopRatio * m_setup.range;
+      raw_target        = m_setup.P0 - InpTargetRatio * m_setup.range;
+      raw_visual_target = m_setup.P0 - InpVisualTargetRatio * m_setup.range;
+
+      m_setup.entry_price         = NormalizePriceDirectional(raw_entry, 1);
+      m_setup.stop_price          = NormalizePriceDirectional(raw_stop, 1);
+      m_setup.target_price        = NormalizePriceDirectional(raw_target, 1);
+      m_setup.visual_target_price = NormalizePriceDirectional(raw_visual_target, 0);
+   }
+   else
+      return false;
+
+   // TP1 is always expressed in actual initial risk units. The former fixed
+   // projection ignored InpPartialTPRiskMultiple and could be extremely far.
+   double initial_risk_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+   if (initial_risk_distance <= 0.0 || !MathIsValidNumber(initial_risk_distance))
+      return false;
+   if (m_setup.dir == SIGNAL_BUY)
+      m_setup.partial_tp_price = NormalizePriceDirectional(
+         m_setup.entry_price + initial_risk_distance * InpPartialTPRiskMultiple, -1);
+   else
+      m_setup.partial_tp_price = NormalizePriceDirectional(
+         m_setup.entry_price - initial_risk_distance * InpPartialTPRiskMultiple, 1);
+
+   if (!MathIsValidNumber(m_setup.entry_price) || !MathIsValidNumber(m_setup.stop_price) ||
+       !MathIsValidNumber(m_setup.target_price) || !MathIsValidNumber(m_setup.visual_target_price) ||
+       m_setup.entry_price <= 0.0 || m_setup.stop_price <= 0.0 ||
+       m_setup.target_price <= 0.0 || m_setup.visual_target_price <= 0.0)
+      return false;
+
+   if (m_setup.dir == SIGNAL_BUY)
+      return (m_setup.stop_price < m_setup.entry_price &&
+              m_setup.entry_price < m_setup.P0 && m_setup.P0 < m_setup.P1 &&
+              (!InpUsePartialTP || (m_setup.entry_price < m_setup.partial_tp_price &&
+                                    m_setup.partial_tp_price < m_setup.target_price)) &&
+              m_setup.P1 < m_setup.target_price &&
+              m_setup.target_price <= m_setup.visual_target_price);
+
+   return (m_setup.visual_target_price <= m_setup.target_price &&
+           m_setup.target_price < m_setup.P1 && m_setup.P1 < m_setup.P0 &&
+           (!InpUsePartialTP || (m_setup.target_price < m_setup.partial_tp_price &&
+                                 m_setup.partial_tp_price < m_setup.entry_price)) &&
+           m_setup.P0 < m_setup.entry_price && m_setup.entry_price < m_setup.stop_price);
+}
+
+//+------------------------------------------------------------------+
+//| ADAPTIVE GEOMETRY — SL/TP depend on chart volatility (ATR)       |
+//+------------------------------------------------------------------+
+bool AdaptSLTPToVolatility()
+{
+   if (!InpUseAdaptiveSL && !InpUseAdaptiveTP && !InpUseSweepBuffer)
+      return true;
+
+   // ATR handle is required for adaptive geometry
+   if (m_atr_handle == INVALID_HANDLE)
+   {
+      Print("ERROR: [RSIFibEA] Adaptive geometry requires ATR handle but it is invalid.");
+      return false;
+   }
+
+   double atr_buf[1];
+   if (CopyBuffer(m_atr_handle, 0, 1, 1, atr_buf) != 1)
+   {
+      Print("WARNING: [RSIFibEA] Cannot read ATR for adaptive geometry.");
+      return false;
+   }
+
+   double atr = atr_buf[0];
+   if (atr == EMPTY_VALUE || !MathIsValidNumber(atr) || atr <= 0.0)
+   {
+      Print("WARNING: [RSIFibEA] ATR value is invalid for adaptive geometry.");
+      return false;
+   }
+
+   double current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+
+   // --- Adaptive SL: widen stop if it is closer than MinSLATRMultiple × ATR ---
+   if (InpUseAdaptiveSL)
+   {
+      double min_sl_distance = InpMinSLATRMultiple * atr;
+
+      if (current_sl_distance < min_sl_distance)
+      {
+         if (m_setup.dir == SIGNAL_BUY)
+         {
+            double new_stop = m_setup.entry_price - min_sl_distance;
+            m_setup.stop_price = NormalizePriceDirectional(new_stop, -1);
+         }
+         else if (m_setup.dir == SIGNAL_SELL)
+         {
+            double new_stop = m_setup.entry_price + min_sl_distance;
+            m_setup.stop_price = NormalizePriceDirectional(new_stop, 1);
+         }
+
+         current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+
+         if (InpVerboseLog)
+            PrintFormat("ADAPT: [RSIFibEA] SL widened to %.5f (ATR=%.5f, floor=%.2f x ATR=%.5f, actual SL dist=%.5f)",
+                        m_setup.stop_price, atr, InpMinSLATRMultiple, min_sl_distance, current_sl_distance);
+      }
+      else
+      {
+         if (InpVerboseLog)
+            PrintFormat("ADAPT: [RSIFibEA] SL distance %.5f already >= ATR floor %.5f. No widening needed.",
+                        current_sl_distance, min_sl_distance);
+      }
+   }
+
+   // --- Liquidity Sweep Protection: place SL beyond recent extreme wick + buffer ---
+   if (InpUseSweepBuffer)
+   {
+      int s_lookback = MathMax(2, InpSweepLookbackBars);
+      if (m_setup.dir == SIGNAL_BUY)
+      {
+         double lowest_wick = iLow(_Symbol, m_timeframe, 1);
+         for (int b = 2; b <= s_lookback; b++)
+         {
+            double lb = iLow(_Symbol, m_timeframe, b);
+            if (lb > 0.0 && lb < lowest_wick) lowest_wick = lb;
+         }
+         double sweep_sl = lowest_wick - (InpSweepBufferATR * atr);
+         if (sweep_sl < m_setup.stop_price)
+         {
+            m_setup.stop_price = NormalizePriceDirectional(sweep_sl, -1);
+            current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+            if (InpVerboseLog)
+               PrintFormat("SWEEP: [RSIFibEA] Buy SL adjusted past wick low to %.5f (lowest=%.5f, buf=%.2f ATR)",
+                           m_setup.stop_price, lowest_wick, InpSweepBufferATR);
+         }
+      }
+      else if (m_setup.dir == SIGNAL_SELL)
+      {
+         double highest_wick = iHigh(_Symbol, m_timeframe, 1);
+         for (int b = 2; b <= s_lookback; b++)
+         {
+            double hb = iHigh(_Symbol, m_timeframe, b);
+            if (hb > 0.0 && hb > highest_wick) highest_wick = hb;
+         }
+         double sweep_sl = highest_wick + (InpSweepBufferATR * atr);
+         if (sweep_sl > m_setup.stop_price)
+         {
+            m_setup.stop_price = NormalizePriceDirectional(sweep_sl, 1);
+            current_sl_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+            if (InpVerboseLog)
+               PrintFormat("SWEEP: [RSIFibEA] Sell SL adjusted past wick high to %.5f (highest=%.5f, buf=%.2f ATR)",
+                           m_setup.stop_price, highest_wick, InpSweepBufferATR);
+         }
+      }
+   }
+
+   // --- Adaptive TP: set TP at a fixed R:R multiple of the actual SL distance ---
+   if (InpUseAdaptiveTP)
+   {
+      double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      if (tick_size <= 0.0)
+         return false;
+
+      double new_tp_distance = current_sl_distance * InpTPRiskMultiple;
+
+      if (m_setup.dir == SIGNAL_BUY)
+      {
+         m_setup.target_price        = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance, -1);
+         m_setup.visual_target_price = NormalizePriceDirectional(m_setup.entry_price + new_tp_distance + tick_size, 0);
+      }
+      else if (m_setup.dir == SIGNAL_SELL)
+      {
+         m_setup.target_price        = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance, 1);
+         m_setup.visual_target_price = NormalizePriceDirectional(m_setup.entry_price - new_tp_distance - tick_size, 0);
+      }
+
+      if (InpVerboseLog)
+         PrintFormat("ADAPT: [RSIFibEA] TP adjusted to %.5f (TP1=%.5f at %.1fR, TP2=%.5f at %.1fR)",
+                     m_setup.target_price, m_setup.partial_tp_price, InpPartialTPRiskMultiple, m_setup.target_price, InpTPRiskMultiple);
+   }
+
+   // Any SL widening changes actual risk, so recompute TP1 even when adaptive
+   // TP itself is disabled.
+   if (m_setup.dir == SIGNAL_BUY)
+      m_setup.partial_tp_price = NormalizePriceDirectional(
+         m_setup.entry_price + current_sl_distance * InpPartialTPRiskMultiple, -1);
+   else if (m_setup.dir == SIGNAL_SELL)
+      m_setup.partial_tp_price = NormalizePriceDirectional(
+         m_setup.entry_price - current_sl_distance * InpPartialTPRiskMultiple, 1);
+
+   // --- Final validation of adapted geometry ---
+   if (!MathIsValidNumber(m_setup.stop_price) || !MathIsValidNumber(m_setup.target_price) ||
+       !MathIsValidNumber(m_setup.visual_target_price) ||
+       m_setup.stop_price <= 0.0 || m_setup.target_price <= 0.0 || m_setup.visual_target_price <= 0.0)
+      return false;
+
+   if (m_setup.dir == SIGNAL_BUY)
+      return (m_setup.stop_price < m_setup.entry_price && m_setup.entry_price < m_setup.target_price &&
+              (!InpUsePartialTP || (m_setup.entry_price < m_setup.partial_tp_price &&
+                                    m_setup.partial_tp_price < m_setup.target_price)) &&
+              m_setup.target_price <= m_setup.visual_target_price);
+
+   return (m_setup.visual_target_price <= m_setup.target_price &&
+           (!InpUsePartialTP || (m_setup.target_price < m_setup.partial_tp_price &&
+                                 m_setup.partial_tp_price < m_setup.entry_price)) &&
+           m_setup.target_price < m_setup.entry_price && m_setup.entry_price < m_setup.stop_price);
+}
+
+bool IsSetupInvalidatedByPrice()
+{
+   double ask  = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid  = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if (ask <= 0.0 || bid <= 0.0)
+      return true;
+
+   if (m_setup.dir == SIGNAL_BUY)
+   {
+      // Long SL and TP are executable on Bid.
+      if (bid <= m_setup.stop_price)
+         return true;
+      if (bid >= m_setup.target_price)
+         return true;
+   }
+   else if (m_setup.dir == SIGNAL_SELL)
+   {
+      // Short SL and TP are executable on Ask.
+      if (ask >= m_setup.stop_price)
+         return true;
+      if (ask <= m_setup.target_price)
+         return true;
+   }
+   return false;
+}
+
+bool GetContractEntryCutoff(datetime &contract_expiration, datetime &entry_cutoff)
+{
+   long expiration_value = 0;
+   ResetLastError();
+   if (!SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_TIME, expiration_value) ||
+       expiration_value < 0)
+   {
+      PrintFormat("ERROR: [RSIFibEA] SYMBOL_EXPIRATION_TIME is unavailable or invalid (Error: %d).",
+                  GetLastError());
+      contract_expiration = 0;
+      entry_cutoff = 0;
+      return false;
+   }
+
+   contract_expiration = (datetime)expiration_value;
+   entry_cutoff = 0;
+
+   // A zero expiration is normal for spot/CFD symbols.
+   if (contract_expiration <= 0)
+      return true;
+
+   long horizon_seconds = (long)InpMinDaysToContractExpiry * 86400L;
+   long cutoff_value = (long)contract_expiration - horizon_seconds;
+   if (horizon_seconds <= 0 || cutoff_value <= 0)
+      return false;
+
+   entry_cutoff = (datetime)cutoff_value;
+   return true;
+}
+
+bool BuildPendingLifetime(ENUM_ORDER_TYPE_TIME &lifetime_type,
+                          datetime &broker_expiration)
+{
+   lifetime_type = ORDER_TIME_GTC;
+   broker_expiration = 0;
+
+   datetime now = TimeCurrent();
+   long timeframe_seconds = (long)PeriodSeconds(m_timeframe);
+   long requested_seconds = timeframe_seconds * (long)InpPendingOrderBars;
+   long requested_expiration = (long)now + requested_seconds;
+   if (timeframe_seconds <= 0 || requested_seconds <= 0 ||
+       requested_expiration <= (long)now)
+   {
+      Print("ERROR: [RSIFibEA] Pending-order lifetime cannot be represented safely.");
+      return false;
+   }
+
+   datetime contract_expiration = 0;
+   datetime entry_cutoff = 0;
+   if (!GetContractEntryCutoff(contract_expiration, entry_cutoff))
+   {
+      Print("ERROR: [RSIFibEA] Contract entry cutoff cannot be represented safely.");
+      return false;
+   }
+
+   // Never shorten the strategy silently: the complete planned pending
+   // lifetime must fit strictly before the no-new-exposure cutoff.
+   if (entry_cutoff > 0 && requested_expiration >= (long)entry_cutoff)
+   {
+      Print("GUARD REJECT: Planned pending-order lifetime would reach the contract cutoff.");
+      return false;
+   }
+   long safe_expiration = requested_expiration;
+
+   long expiration_modes = 0;
+   ResetLastError();
+   if (!SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE, expiration_modes) ||
+       expiration_modes <= 0)
+   {
+      PrintFormat("ERROR: [RSIFibEA] Pending-order expiration modes are unavailable (Error: %d).",
+                  GetLastError());
+      return false;
+   }
+
+   // Prefer an exact finite lifetime. Less precise finite day modes precede
+   // GTC so a supported server-side expiry is never discarded for infinity.
+   if ((expiration_modes & (long)SYMBOL_EXPIRATION_SPECIFIED) != 0)
+   {
+      lifetime_type = ORDER_TIME_SPECIFIED;
+      broker_expiration = (datetime)safe_expiration;
+      return true;
+   }
+
+   MqlDateTime day_parts;
+   if (!TimeToStruct(now, day_parts))
+   {
+      Print("ERROR: [RSIFibEA] Broker day boundary could not be calculated safely.");
+      return false;
+   }
+   day_parts.hour = 23;
+   day_parts.min = 59;
+   day_parts.sec = 59;
+   datetime broker_day_end = StructToTime(day_parts);
+   bool day_mode_is_safe = (broker_day_end > now &&
+                            (entry_cutoff <= 0 || broker_day_end < entry_cutoff));
+
+   if ((expiration_modes & (long)SYMBOL_EXPIRATION_DAY) != 0 && day_mode_is_safe)
+   {
+      lifetime_type = ORDER_TIME_DAY;
+      return true;
+   }
+   if ((expiration_modes & (long)SYMBOL_EXPIRATION_SPECIFIED_DAY) != 0 &&
+       day_mode_is_safe)
+   {
+      lifetime_type = ORDER_TIME_SPECIFIED_DAY;
+      broker_expiration = broker_day_end;
+      return true;
+   }
+
+   // GTC is acceptable only for a non-expiring instrument. For a future it
+   // could survive the cutoff while the terminal is offline.
+   if ((expiration_modes & (long)SYMBOL_EXPIRATION_GTC) != 0 &&
+       contract_expiration <= 0)
+   {
+      lifetime_type = ORDER_TIME_GTC;
+      return true;
+   }
+
+   Print("ERROR: [RSIFibEA] Symbol exposes no expiration mode that stays inside the safe pending-order window.");
+   return false;
+}
+
+void ExecutePendingOrder(ENUM_ORDER_TYPE order_type, double vol)
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked pending-order placement");
+      return;
+   }
+
+   if (!IsSignalDirectionEnabled(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_DIRECTION_POLICY); ResetSetupToIdle(); return; }
+   if (!CheckMTFTrendFilter(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_MTF_TREND); ResetSetupToIdle(); return; }
+   if (!CheckRiskGuards())
+   { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); ResetSetupToIdle(); return; }
+   if (!CheckPortfolioLimits())
+   { RecordFunnel(FUNNEL_REJECT_PORTFOLIO); ResetSetupToIdle(); return; }
+   if (!CheckSpread())
+   { RecordFunnel(FUNNEL_REJECT_SPREAD); ResetSetupToIdle(); return; }
+   if (!CheckSetupSpread())
+   { RecordFunnel(FUNNEL_REJECT_SETUP_SPREAD); ResetSetupToIdle(); return; }
+   if (!CheckSession())
+   { RecordFunnel(FUNNEL_REJECT_SESSION); ResetSetupToIdle(); return; }
+   if (!CheckContractLifecycle())
+   { RecordFunnel(FUNNEL_REJECT_CONTRACT); ResetSetupToIdle(); return; }
+
+   m_trade.SetExpertMagicNumber(InpMagicNumber);
+   string comment = "RSIFibEA_" + IntegerToString((long)InpMagicNumber);
+
+   ENUM_ORDER_TYPE_TIME lifetime_type = ORDER_TIME_GTC;
+   datetime broker_expiration = 0;
+   if (!BuildPendingLifetime(lifetime_type, broker_expiration))
+   {
+      ResetSetupToIdle();
+      return;
+   }
+
+   RecordFunnel(FUNNEL_ORDER_SEND);
+   bool res = false;
+   if (order_type == ORDER_TYPE_BUY_LIMIT)
+      res = m_trade.BuyLimit(vol, m_setup.entry_price, _Symbol, m_setup.stop_price, m_setup.target_price,
+                             lifetime_type, broker_expiration, comment);
+   else if (order_type == ORDER_TYPE_SELL_LIMIT)
+      res = m_trade.SellLimit(vol, m_setup.entry_price, _Symbol, m_setup.stop_price, m_setup.target_price,
+                              lifetime_type, broker_expiration, comment);
+
+   uint retcode = m_trade.ResultRetcode();
+   if (res && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_PLACED))
+   {
+      RecordFunnel(FUNNEL_ORDER_PLACED);
+      m_setup.pending_ticket = m_trade.ResultOrder();
+      m_setup.pending_order_time = TimeCurrent();
+
+      if (m_setup.pending_ticket == 0)
+      {
+         ulong deal_ticket = m_trade.ResultDeal();
+         if (deal_ticket > 0 && HistoryDealSelect(deal_ticket))
+         {
+            ulong order_id = (ulong)HistoryDealGetInteger(deal_ticket, DEAL_ORDER);
+            if (order_id > 0)
+               m_setup.pending_ticket = order_id;
+         }
+      }
+
+      // A pending order can theoretically fill immediately between validation and send.
+      // Re-sync when the server does not return an active order ticket.
+      if (m_setup.pending_ticket > 0)
+         m_state = STATE_PENDING_ORDER;
+      else
+         SyncState();
+
+      if (m_state != STATE_PENDING_ORDER && m_state != STATE_IN_POSITION)
+      {
+         PrintFormat("ERROR: [RSIFibEA] Server accepted request but no active order/position was found. Retcode: %u (%s)",
+                     retcode, m_trade.ResultRetcodeDescription());
+         ResetSetupToIdle();
+         return;
+      }
+
+      DrawSetupObjects();
+
+      string volume_text = DoubleToString(vol, VolumeDigits(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP)));
+      PrintFormat("SUCCESS: [RSIFibEA] Placed %s ticket #%llu, Vol: %s, Entry: %.5f, SL: %.5f, TP: %.5f",
+                  EnumToString(order_type), m_setup.pending_ticket, volume_text,
+                  m_setup.entry_price, m_setup.stop_price, m_setup.target_price);
+   }
+   else
+   {
+      RecordFunnel(FUNNEL_ORDER_SEND_FAILED);
+      PrintFormat("ERROR: [RSIFibEA] Failed to place %s. Retcode: %u (%s), Comment: %s",
+                  EnumToString(order_type), retcode, m_trade.ResultRetcodeDescription(), m_trade.ResultComment());
+      // Crucial requirement: No state mutation on broker failure!
+      ResetSetupToIdle();
+   }
+}
+
+bool CancelPendingOrder()
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked pending-order cancellation");
+      return false;
+   }
+
+   ulong ticket = m_setup.pending_ticket;
+   if (ticket == 0)
+   {
+      SyncState();
+      return (m_state != STATE_PENDING_ORDER);
+   }
+
+   if (m_last_cancel_attempt != 0 && TimeCurrent() - m_last_cancel_attempt < 1)
+      return false;
+   m_last_cancel_attempt = TimeCurrent();
+
+   if (!OrderSelect(ticket))
+   {
+      // It may have filled, expired, or been deleted externally between ticks.
+      SyncState();
+      return (m_state != STATE_PENDING_ORDER);
+   }
+
+   ResetLastError();
+   bool deleted = m_trade.OrderDelete(ticket);
+   uint retcode = m_trade.ResultRetcode();
+   if (deleted && retcode == TRADE_RETCODE_DONE)
+   {
+      PrintFormat("INFO: [RSIFibEA] Cancelled pending order #%llu", ticket);
+      ResetSetupToIdle();
+      return true;
+   }
+
+   PrintFormat("ERROR: [RSIFibEA] Could not cancel pending order #%llu. Retcode: %u (%s), Error: %d. Will retry.",
+               ticket, retcode, m_trade.ResultRetcodeDescription(), GetLastError());
+   m_state = STATE_PENDING_ORDER;
+   return false;
+}
+
+bool CloseManagedPositionForContractCutoff(const ulong ticket)
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked contract-cutoff position close");
+      return false;
+   }
+
+   if (ticket == 0)
+      return false;
+
+   if (!PositionSelectByTicket(ticket))
+   {
+      m_sync_required = true;
+      return true;
+   }
+
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+   {
+      EnterFault(StringFormat("Contract-cutoff close refused foreign position #%llu", ticket));
+      return false;
+   }
+
+   if (m_last_lifecycle_close_attempt != 0 &&
+       TimeCurrent() - m_last_lifecycle_close_attempt < 10)
+      return false;
+   m_last_lifecycle_close_attempt = TimeCurrent();
+
+   bool closed = m_safety_trade.PositionClose(ticket);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (closed && (retcode == TRADE_RETCODE_DONE ||
+                  retcode == TRADE_RETCODE_DONE_PARTIAL))
+   {
+      m_sync_required = true;
+      PrintFormat("SAFETY: [RSIFibEA] Contract-cutoff close sent for position #%llu.", ticket);
+      return true;
+   }
+
+   PrintFormat("CRITICAL: [RSIFibEA] Contract-cutoff close failed for #%llu. Retcode: %u (%s). Will retry.",
+               ticket, retcode, m_safety_trade.ResultRetcodeDescription());
+   return false;
+}
+
+bool EnforceContractCutoffExposure()
+{
+   datetime contract_expiration = 0;
+   datetime entry_cutoff = 0;
+   if (!GetContractEntryCutoff(contract_expiration, entry_cutoff))
+   {
+      m_last_status = "invalid contract lifecycle properties";
+      return false;
+   }
+
+   if (entry_cutoff <= 0 || TimeCurrent() < entry_cutoff)
+      return true;
+
+   m_last_status = "contract cutoff: flattening managed exposure";
+
+   BrokerSnapshot snapshot;
+   CaptureBrokerSnapshot(snapshot);
+   if (snapshot.managed_positions > 1 || snapshot.managed_orders > 1 ||
+       snapshot.managed_unsupported > 0)
+   {
+      EnterFault(StringFormat("Contract-cutoff snapshot is ambiguous: positions=%d orders=%d unsupported=%d",
+                              snapshot.managed_positions, snapshot.managed_orders,
+                              snapshot.managed_unsupported));
+      return false;
+   }
+
+   if (snapshot.managed_orders == 1)
+   {
+      m_setup.pending_ticket = snapshot.limit_ticket;
+      CancelPendingOrder();
+   }
+
+   if (snapshot.managed_positions == 1)
+      CloseManagedPositionForContractCutoff(snapshot.position_ticket);
+
+   // The cutoff is an absorbing no-entry state. Mutations that fail remain in
+   // broker state and are retried on later ticks; never reset them optimistically.
+   return false;
+}
+
+void ResetSetupToIdle()
+{
+   m_setup.Reset();
+   m_state = STATE_IDLE;
+   m_fault_reason = "";
+   m_protection_status = "N/A";
+   m_residual_order_ticket = 0;
+   m_empty_broker_confirmations = 0;
+   m_last_break_even_attempt = 0;
+   m_last_partial_attempt = 0;
+   m_last_emergency_close_attempt = 0;
+   m_last_lifecycle_close_attempt = 0;
+   m_last_managed_close_attempt = 0;
+   RemoveChartObjects();
+}
+
+//+------------------------------------------------------------------+
+//| RISK, SPREAD, SESSION & SYSTEM GUARDS                            |
+//+------------------------------------------------------------------+
+
+bool ValidateInputs()
+{
+   if (!InpDemoOnly)
+   {
+      Print("VALIDATION ERROR: InpDemoOnly is mandatory and cannot be disabled.");
+      return false;
+   }
+   if (InpMagicNumber == 0)
+   {
+      Print("VALIDATION ERROR: InpMagicNumber must be greater than zero.");
+      return false;
+   }
+   if (InpTradeDirection < EA_DIR_BOTH || InpTradeDirection > EA_DIR_SHORT_ONLY)
+   {
+      Print("VALIDATION ERROR: InpTradeDirection is invalid.");
+      return false;
+   }
+   if (InpStateWatchdogMs < 250 || InpStateWatchdogMs > 60000)
+   {
+      Print("VALIDATION ERROR: InpStateWatchdogMs must be between 250 and 60000 ms.");
+      return false;
+   }
+   if (InpRSI_Period < 2 || InpRSI_Period > 100000 ||
+       InpATR_Period < 1 || InpATR_Period > 100000)
+   {
+      Print("VALIDATION ERROR: RSI/ATR periods are outside safe bounds.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpOversoldLevel) || !MathIsValidNumber(InpOverboughtLevel) ||
+       !MathIsValidNumber(InpEntryRatio) || !MathIsValidNumber(InpStopRatio) ||
+       !MathIsValidNumber(InpTargetRatio) || !MathIsValidNumber(InpVisualTargetRatio))
+   {
+      Print("VALIDATION ERROR: Indicator levels and Fib ratios must be finite numbers.");
+      return false;
+   }
+   if (InpOversoldLevel >= InpOverboughtLevel)
+   {
+      Print("VALIDATION ERROR: InpOversoldLevel must be strictly less than InpOverboughtLevel.");
+      return false;
+   }
+   if (InpOversoldLevel <= 0.0 || InpOverboughtLevel >= 100.0)
+   {
+      Print("VALIDATION ERROR: RSI levels must be between 0 and 100.");
+      return false;
+   }
+   if (InpEntryRatio >= 0.0)
+   {
+      Print("VALIDATION ERROR: InpEntryRatio must be strictly negative (< 0.0).");
+      return false;
+   }
+   if (InpStopRatio >= InpEntryRatio)
+   {
+      Print("VALIDATION ERROR: InpStopRatio must be strictly less than InpEntryRatio (< InpEntryRatio).");
+      return false;
+   }
+   if (InpTargetRatio < 1.0)
+   {
+      Print("VALIDATION ERROR: InpTargetRatio must be >= 1.0.");
+      return false;
+   }
+   if (InpVisualTargetRatio < InpTargetRatio)
+   {
+      Print("VALIDATION ERROR: InpVisualTargetRatio must be >= InpTargetRatio.");
+      return false;
+   }
+   if (InpMinImpulseBars < 1 || InpMinImpulseBars > 10000)
+   {
+      Print("VALIDATION ERROR: InpMinImpulseBars must be between 1 and 10000.");
+      return false;
+   }
+   if (InpAnchorWaitBars < InpMinImpulseBars || InpAnchorWaitBars > 10000)
+   {
+      Print("VALIDATION ERROR: InpAnchorWaitBars must be >= impulse bars and <= 10000.");
+      return false;
+   }
+   if (InpPendingOrderBars < 1 || InpPendingOrderBars > 10000)
+   {
+      Print("VALIDATION ERROR: InpPendingOrderBars must be between 1 and 10000.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpRiskPercent) || InpRiskPercent <= 0.0 || InpRiskPercent > 5.00)
+   {
+      Print("VALIDATION ERROR: InpRiskPercent must be positive and cannot exceed 5.00%.");
+      return false;
+   }
+   if (!InpCostModelVerified)
+   {
+      Print("VALIDATION ERROR: The broker cost model must be explicitly verified.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpEstimatedRoundTurnCostPerLot) ||
+       InpEstimatedRoundTurnCostPerLot < 0.0)
+   {
+      Print("VALIDATION ERROR: Verified round-turn cost per lot must be finite and non-negative.");
+      return false;
+   }
+   if (InpAdverseEntrySlippageTicks < 1 || InpAdverseEntrySlippageTicks > 10000 ||
+       InpAdverseStopSlippageTicks < 1 || InpAdverseStopSlippageTicks > 10000 ||
+       !MathIsValidNumber(InpMaxFreeMarginUsagePct) ||
+       InpMaxFreeMarginUsagePct <= 0.0 || InpMaxFreeMarginUsagePct > 100.0 ||
+       InpMinDaysToContractExpiry < 1 || InpMinDaysToContractExpiry > 365)
+   {
+      Print("VALIDATION ERROR: Cost, slippage, margin, or contract-expiry guards are invalid.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpMaxDailyLossPct) || InpMaxDailyLossPct < 0.0 || InpMaxDailyLossPct > 100.0 ||
+       InpMaxDailyTrades < 0 || InpMaxConsecutiveLosses < 0 ||
+       InpMaxPortfolioActiveExposures < 0 || InpMaxPortfolioDailyTrades < 0 ||
+       !MathIsValidNumber(InpMaxPortfolioDailyLossPct) ||
+       InpMaxPortfolioDailyLossPct < 0.0 || InpMaxPortfolioDailyLossPct > 100.0)
+   {
+      Print("VALIDATION ERROR: Daily guard parameters are outside their valid ranges.");
+      return false;
+   }
+   bool portfolio_guard_enabled = (InpMaxPortfolioActiveExposures > 0 ||
+                                   InpMaxPortfolioDailyTrades > 0 ||
+                                   InpMaxPortfolioDailyLossPct > 0.0);
+   if (portfolio_guard_enabled &&
+       (InpPortfolioMagicMin == 0 || InpPortfolioMagicMax < InpPortfolioMagicMin ||
+        InpMagicNumber < InpPortfolioMagicMin || InpMagicNumber > InpPortfolioMagicMax))
+   {
+      Print("VALIDATION ERROR: Enabled portfolio guards require a valid magic range containing InpMagicNumber.");
+      return false;
+   }
+   if (InpMaxSpreadPoints < 0 || !MathIsValidNumber(InpMaxSpreadRiskPct) || InpMaxSpreadRiskPct < 0.0)
+   {
+      Print("VALIDATION ERROR: Spread limits cannot be negative.");
+      return false;
+   }
+   if (InpStartHour < 0 || InpStartHour > 23 || InpEndHour < 0 || InpEndHour > 23)
+   {
+      Print("VALIDATION ERROR: Session hours must be between 0 and 23.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpMinRangeATR) || !MathIsValidNumber(InpMaxRangeATR) ||
+       InpMinRangeATR < 0.0 || InpMaxRangeATR < 0.0 ||
+       (InpMinRangeATR > 0.0 && InpMaxRangeATR > 0.0 && InpMinRangeATR > InpMaxRangeATR))
+   {
+      Print("VALIDATION ERROR: ATR range bounds are invalid.");
+      return false;
+   }
+   if (InpRSIMinBarsInZone < 1 || InpRSIMinBarsInZone > 10000)
+   {
+      Print("VALIDATION ERROR: InpRSIMinBarsInZone must be between 1 and 10000.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpRSIMinExitDelta) || InpRSIMinExitDelta < 0.0)
+   {
+      Print("VALIDATION ERROR: InpRSIMinExitDelta must be a finite non-negative number.");
+      return false;
+   }
+   if (InpMTFEMAPeriod < 1 || InpMTFEMAPeriod > 100000)
+   {
+      Print("VALIDATION ERROR: InpMTFEMAPeriod is outside safe bounds.");
+      return false;
+   }
+   if (InpMTFSlopeLookbackBars < 1 || InpMTFSlopeLookbackBars > 10000 ||
+       !MathIsValidNumber(InpMTFMinSlopePct) ||
+       InpMTFMinSlopePct < 0.0 || InpMTFMinSlopePct > 100.0)
+   {
+      Print("VALIDATION ERROR: MTF EMA slope parameters are outside safe bounds.");
+      return false;
+   }
+   ENUM_TIMEFRAMES resolved_signal_tf = (InpSignalTimeframe == PERIOD_CURRENT)
+                                         ? (ENUM_TIMEFRAMES)_Period
+                                         : InpSignalTimeframe;
+   if (InpUseMTFTrendFilter && InpMTFTimeframe != PERIOD_CURRENT &&
+       PeriodSeconds(InpMTFTimeframe) < PeriodSeconds(resolved_signal_tf))
+   {
+      Print("VALIDATION ERROR: InpMTFTimeframe must be equal to or higher than the signal timeframe.");
+      return false;
+   }
+   if (InpMTFRSIPeriod < 2 || InpMTFRSIPeriod > 100000)
+   {
+      Print("VALIDATION ERROR: InpMTFRSIPeriod is outside safe bounds.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpMTFRSIMidline) || InpMTFRSIMidline <= 0.0 || InpMTFRSIMidline >= 100.0)
+   {
+      Print("VALIDATION ERROR: InpMTFRSIMidline must be between 0 and 100.");
+      return false;
+   }
+   if (InpVolFastATRPeriod < 1 || InpVolFastATRPeriod > 100000 ||
+       InpVolSlowATRPeriod < 1 || InpVolSlowATRPeriod > 100000)
+   {
+      Print("VALIDATION ERROR: Fast and Slow ATR periods are outside safe bounds.");
+      return false;
+   }
+   if (InpVolFastATRPeriod >= InpVolSlowATRPeriod)
+   {
+      Print("VALIDATION ERROR: InpVolFastATRPeriod must be strictly less than InpVolSlowATRPeriod.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpVolMinRatio) || !MathIsValidNumber(InpVolMaxRatio) ||
+       InpVolMinRatio <= 0.0 || InpVolMaxRatio < InpVolMinRatio)
+   {
+      Print("VALIDATION ERROR: Volatility ratio bounds are invalid.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpBETriggerFibRatio) || InpBETriggerFibRatio < 0.0 ||
+       InpBETriggerFibRatio > InpTargetRatio || InpBEOffsetTicks < 0)
+   {
+      Print("VALIDATION ERROR: Break-even trigger/offset values are invalid.");
+      return false;
+   }
+   if (InpUseFibTrailingStop && InpUseRiskTrailingStop)
+   {
+      Print("VALIDATION ERROR: Fibonacci and R-multiple trailing modes are mutually exclusive.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpRiskTrailTriggerR) ||
+       !MathIsValidNumber(InpRiskTrailLockR) ||
+       !MathIsValidNumber(InpRiskTrailStepR) ||
+       InpRiskTrailTriggerR <= 0.0 || InpRiskTrailTriggerR > 100.0 ||
+       InpRiskTrailLockR < 0.0 || InpRiskTrailLockR >= InpRiskTrailTriggerR ||
+       InpRiskTrailStepR <= 0.0 || InpRiskTrailStepR > 100.0)
+   {
+      Print("VALIDATION ERROR: R-multiple trailing parameters are invalid.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpMinSLATRMultiple) || InpMinSLATRMultiple <= 0.0 || InpMinSLATRMultiple > 100.0)
+   {
+      Print("VALIDATION ERROR: InpMinSLATRMultiple must be a positive finite number (<= 100).");
+      return false;
+   }
+   if (!MathIsValidNumber(InpTPRiskMultiple) || InpTPRiskMultiple <= 0.0 || InpTPRiskMultiple > 100.0)
+   {
+      Print("VALIDATION ERROR: InpTPRiskMultiple must be a positive finite number (<= 100).");
+      return false;
+   }
+   if (InpRSIDivLookbackBars < 3 || InpRSIDivLookbackBars > 200)
+   {
+      Print("VALIDATION ERROR: InpRSIDivLookbackBars must be between 3 and 200.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpRSIDivMinPivotDiff) || InpRSIDivMinPivotDiff < 0.0)
+   {
+      Print("VALIDATION ERROR: InpRSIDivMinPivotDiff must be a non-negative number.");
+      return false;
+   }
+   if (InpNewsMinsBefore < 0 || InpNewsMinsAfter < 0)
+   {
+      Print("VALIDATION ERROR: InpNewsMinsBefore and InpNewsMinsAfter must be non-negative.");
+      return false;
+   }
+   if ((int)InpNewsMode < (int)NEWS_DISABLED ||
+       (int)InpNewsMode > (int)NEWS_TESTER_FILE ||
+       (InpNewsMode == NEWS_TESTER_FILE && !IsSafeTesterNewsPath(InpTesterNewsFile)))
+   {
+      Print("VALIDATION ERROR: News source mode or tester-file path is invalid.");
+      return false;
+   }
+   string news_currency = InpNewsCurrency;
+   StringTrimLeft(news_currency);
+   StringTrimRight(news_currency);
+   if (InpNewsMode != NEWS_DISABLED && StringLen(news_currency) == 0)
+   {
+      Print("VALIDATION ERROR: InpNewsCurrency cannot be empty when a news source is active.");
+      return false;
+   }
+   if (InpSweepLookbackBars < 2 || InpSweepLookbackBars > 10000 ||
+       !MathIsValidNumber(InpSweepBufferATR) || InpSweepBufferATR < 0.0 ||
+       InpSweepBufferATR > 100.0)
+   {
+      Print("VALIDATION ERROR: Liquidity sweep parameters are invalid.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpPartialTPRiskMultiple) || InpPartialTPRiskMultiple <= 0.0 || InpPartialTPRiskMultiple > 100.0)
+   {
+      Print("VALIDATION ERROR: InpPartialTPRiskMultiple must be a positive finite number (<= 100).");
+      return false;
+   }
+   if (InpUsePartialTP && InpUseAdaptiveTP &&
+       InpPartialTPRiskMultiple >= InpTPRiskMultiple)
+   {
+      Print("VALIDATION ERROR: Partial TP must be strictly before the adaptive final TP.");
+      return false;
+   }
+   if (!MathIsValidNumber(InpPartialClosePercent) || InpPartialClosePercent <= 0.0 || InpPartialClosePercent >= 100.0)
+   {
+      Print("VALIDATION ERROR: InpPartialClosePercent must be between 0 and 100.");
+      return false;
+   }
+   if (InpTesterMinTrades < 1 || InpTesterTargetTrades < InpTesterMinTrades ||
+       !MathIsValidNumber(InpTesterMaxDDPct) || InpTesterMaxDDPct <= 0.0 ||
+       InpTesterMaxDDPct > 100.0 ||
+       !MathIsValidNumber(InpTesterPFCap) || InpTesterPFCap <= 1.0 ||
+       !MathIsValidNumber(InpTesterSharpeCap) || InpTesterSharpeCap <= 0.0)
+   {
+      Print("VALIDATION ERROR: Strategy Tester fitness parameters are invalid.");
+      return false;
+   }
+   return true;
+}
+
+bool IsStrictDemoContext()
+{
+   if (!InpDemoOnly)
+      return false;
+   if (MQLInfoInteger(MQL_TESTER))
+      return true;
+   return ((ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE) ==
+           ACCOUNT_TRADE_MODE_DEMO);
+}
+
+bool IsTradeAllowed()
+{
+   if (!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
+      return false;
+   if (!MQLInfoInteger(MQL_TRADE_ALLOWED))
+      return false;
+   if (!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))
+      return false;
+   if (!AccountInfoInteger(ACCOUNT_TRADE_EXPERT))
+      return false;
+
+   ENUM_SYMBOL_TRADE_MODE trade_mode = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   if (trade_mode == SYMBOL_TRADE_MODE_DISABLED || trade_mode == SYMBOL_TRADE_MODE_CLOSEONLY)
+      return false;
+
+   return true;
+}
+
+bool IsDirectionAllowed(ENUM_SIGNAL_DIR dir)
+{
+   ENUM_SYMBOL_TRADE_MODE trade_mode = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
+   if (trade_mode == SYMBOL_TRADE_MODE_FULL)
+      return true;
+   if (dir == SIGNAL_BUY && trade_mode == SYMBOL_TRADE_MODE_LONGONLY)
+      return true;
+   if (dir == SIGNAL_SELL && trade_mode == SYMBOL_TRADE_MODE_SHORTONLY)
+      return true;
+   return false;
+}
+
+bool IsSignalDirectionEnabled(ENUM_SIGNAL_DIR dir)
+{
+   if (dir == SIGNAL_BUY)
+      return (InpTradeDirection == EA_DIR_BOTH ||
+              InpTradeDirection == EA_DIR_LONG_ONLY);
+   if (dir == SIGNAL_SELL)
+      return (InpTradeDirection == EA_DIR_BOTH ||
+              InpTradeDirection == EA_DIR_SHORT_ONLY);
+   return false;
+}
+
+bool CheckSpread()
+{
+   if (InpMaxSpreadPoints <= 0)
+      return true;
+
+   MqlTick tick;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (!SymbolInfoTick(_Symbol, tick) || point <= 0.0 || tick.ask <= 0.0 || tick.bid <= 0.0)
+      return false;
+
+   double spread_points = (tick.ask - tick.bid) / point;
+   if (spread_points > (double)InpMaxSpreadPoints)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Current spread (%.1f pts) exceeds max allowed (%d pts)",
+                     spread_points, InpMaxSpreadPoints);
+      return false;
+   }
+   return true;
+}
+
+bool CheckSetupSpread()
+{
+   if (InpMaxSpreadRiskPct <= 0.0)
+      return true;
+
+   MqlTick tick;
+   if (!SymbolInfoTick(_Symbol, tick) || tick.ask <= 0.0 || tick.bid <= 0.0)
+      return false;
+
+   double risk_distance = MathAbs(m_setup.entry_price - m_setup.stop_price);
+   double spread = tick.ask - tick.bid;
+   if (risk_distance <= 0.0 || spread < 0.0)
+      return false;
+
+   double spread_risk_pct = 100.0 * spread / risk_distance;
+   if (spread_risk_pct > InpMaxSpreadRiskPct)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Spread consumes %.2f%% of Entry-to-SL distance (max %.2f%%).",
+                     spread_risk_pct, InpMaxSpreadRiskPct);
+      return false;
+   }
+   return true;
+}
+
+bool HasAnySymbolExposure()
+{
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket > 0 && PositionGetString(POSITION_SYMBOL) == _Symbol)
+         return true;
+   }
+
+   for (int i = 0; i < OrdersTotal(); i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if (ticket > 0 && OrderGetString(ORDER_SYMBOL) == _Symbol)
+         return true;
+   }
+
+   return false;
+}
+
+bool CheckSession()
+{
+   MqlDateTime dt;
+   TimeCurrent(dt);
+
+   // Friday protection is independent from the optional intraday session.
+   if (InpFridayFilter && dt.day_of_week == 5 && dt.hour >= InpFridayMaxHour)
+      return false;
+
+   if (!InpUseSessionFilter)
+      return true;
+
+   if (InpStartHour <= InpEndHour)
+   {
+      if (dt.hour < InpStartHour || dt.hour >= InpEndHour)
+         return false;
+   }
+   else
+   {
+      // Overnight session (e.g. 22:00 to 06:00)
+      if (dt.hour < InpStartHour && dt.hour >= InpEndHour)
+         return false;
+   }
+   return true;
+}
+
+bool CheckContractLifecycle()
+{
+   datetime now = TimeCurrent();
+   long start_value = 0;
+   ResetLastError();
+   if (!SymbolInfoInteger(_Symbol, SYMBOL_START_TIME, start_value) ||
+       start_value < 0)
+   {
+      PrintFormat("GUARD REJECT: SYMBOL_START_TIME is unavailable or invalid (Error: %d).",
+                  GetLastError());
+      return false;
+   }
+   datetime start_time = (datetime)start_value;
+
+   if (start_time > 0 && now < start_time)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Contract has not started trading yet (start %s).",
+                     TimeToString(start_time, TIME_DATE | TIME_MINUTES));
+      return false;
+   }
+
+   datetime expiration_time = 0;
+   datetime entry_cutoff = 0;
+   if (!GetContractEntryCutoff(expiration_time, entry_cutoff))
+   {
+      Print("GUARD REJECT: Contract lifecycle properties cannot produce a safe entry cutoff.");
+      return false;
+   }
+
+   if (entry_cutoff > 0 && now >= entry_cutoff)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Contract entry cutoff reached (%s; expiry %s; horizon %d days).",
+                     TimeToString(entry_cutoff, TIME_DATE | TIME_SECONDS),
+                     TimeToString(expiration_time, TIME_DATE | TIME_MINUTES),
+                     InpMinDaysToContractExpiry);
+      return false;
+   }
+   return true;
+}
+
+bool CheckDailyLimits()
+{
+   int daily_trades = 0;
+   double daily_pnl = 0.0;
+   int consec_losses = 0;
+
+   if (!UpdateDailyStats(daily_trades, daily_pnl, consec_losses))
+   {
+      Print("GUARD REJECT: Daily history could not be read. Trading is disabled until statistics are available.");
+      return false;
+   }
+
+   // Max Daily Trades Limit
+   if (InpMaxDailyTrades > 0 && daily_trades >= InpMaxDailyTrades)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Daily trade count limit reached (%d >= %d)", daily_trades, InpMaxDailyTrades);
+      return false;
+   }
+
+   // Consecutive Losses Limit
+   if (InpMaxConsecutiveLosses > 0 && consec_losses >= InpMaxConsecutiveLosses)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Max consecutive losses limit reached (%d >= %d)", consec_losses, InpMaxConsecutiveLosses);
+      return false;
+   }
+
+   // Max Daily Drawdown / Loss Limit, including this EA's floating PnL.
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   double floating_pnl = CurrentEAFloatingPnL();
+   double equity_pnl_today = daily_pnl + floating_pnl;
+   double estimated_day_start_equity = equity - equity_pnl_today;
+   if (estimated_day_start_equity <= 0.0)
+      estimated_day_start_equity = AccountInfoDouble(ACCOUNT_BALANCE) - daily_pnl;
+
+   if (equity > 0.0 && estimated_day_start_equity > 0.0 && InpMaxDailyLossPct > 0.0)
+   {
+      double max_loss_money = estimated_day_start_equity * (InpMaxDailyLossPct / 100.0);
+      if (equity_pnl_today <= -max_loss_money)
+      {
+         if (InpVerboseLog)
+            PrintFormat("GUARD REJECT: Max daily equity loss reached (realized %.2f, floating %.2f, limit %.2f)",
+                        daily_pnl, floating_pnl, -max_loss_money);
+         return false;
+      }
+   }
+
+   return true;
+}
+
+bool PortfolioGuardsEnabled()
+{
+   return (InpMaxPortfolioActiveExposures > 0 ||
+           InpMaxPortfolioDailyTrades > 0 ||
+           InpMaxPortfolioDailyLossPct > 0.0);
+}
+
+bool IsPortfolioMagic(const long magic)
+{
+   if (!PortfolioGuardsEnabled() || magic <= 0)
+      return false;
+   ulong value = (ulong)magic;
+   return (value >= InpPortfolioMagicMin && value <= InpPortfolioMagicMax);
+}
+
+bool CountPortfolioActiveExposures(int &out_count)
+{
+   out_count = 0;
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket > 0 && IsPortfolioMagic(PositionGetInteger(POSITION_MAGIC)))
+         out_count++;
+   }
+
+   for (int i = 0; i < OrdersTotal(); i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if (ticket > 0 && IsPortfolioMagic(OrderGetInteger(ORDER_MAGIC)))
+         out_count++;
+   }
+   return true;
+}
+
+bool GetPortfolioDailyStats(int &out_count, double &out_realized_pnl)
+{
+   out_count = 0;
+   out_realized_pnl = 0.0;
+   MqlDateTime dt;
+   if (!TimeToStruct(TimeCurrent(), dt))
+      return false;
+   dt.hour = 0;
+   dt.min = 0;
+   dt.sec = 0;
+   datetime midnight_today = StructToTime(dt);
+   if (midnight_today <= 0 || !HistorySelect(midnight_today, TimeCurrent() + 1))
+      return false;
+
+   long position_ids[];
+   int position_count = 0;
+   int total_deals = HistoryDealsTotal();
+   for (int i = 0; i < total_deals; i++)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if (ticket == 0 ||
+          !IsPortfolioMagic(HistoryDealGetInteger(ticket, DEAL_MAGIC)))
+         continue;
+
+      out_realized_pnl += HistoryDealGetDouble(ticket, DEAL_PROFIT) +
+                          HistoryDealGetDouble(ticket, DEAL_COMMISSION) +
+                          HistoryDealGetDouble(ticket, DEAL_SWAP) +
+                          HistoryDealGetDouble(ticket, DEAL_FEE);
+
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if (entry != DEAL_ENTRY_IN && entry != DEAL_ENTRY_INOUT)
+         continue;
+
+      long position_id = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+      if (position_id <= 0)
+         return false;
+
+      bool already_counted = false;
+      for (int p = 0; p < position_count; p++)
+      {
+         if (position_ids[p] == position_id)
+         {
+            already_counted = true;
+            break;
+         }
+      }
+      if (already_counted)
+         continue;
+
+      if (ArrayResize(position_ids, position_count + 1, 16) != position_count + 1)
+         return false;
+      position_ids[position_count] = position_id;
+      position_count++;
+   }
+
+   out_count = position_count;
+   return true;
+}
+
+double CurrentPortfolioFloatingPnL()
+{
+   double pnl = 0.0;
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || !IsPortfolioMagic(PositionGetInteger(POSITION_MAGIC)))
+         continue;
+      pnl += PositionGetDouble(POSITION_PROFIT) +
+             PositionGetDouble(POSITION_SWAP);
+   }
+   return pnl;
+}
+
+bool CheckPortfolioLimits()
+{
+   if (!PortfolioGuardsEnabled())
+      return true;
+
+   if (InpMaxPortfolioActiveExposures > 0)
+   {
+      int active_exposures = 0;
+      if (!CountPortfolioActiveExposures(active_exposures))
+      {
+         Print("GUARD REJECT: Shared portfolio exposure could not be counted safely.");
+         return false;
+      }
+      if (active_exposures >= InpMaxPortfolioActiveExposures)
+      {
+         if (InpVerboseLog)
+            PrintFormat("GUARD REJECT: Shared portfolio exposure limit reached (%d >= %d).",
+                        active_exposures, InpMaxPortfolioActiveExposures);
+         return false;
+      }
+   }
+
+   if (InpMaxPortfolioDailyTrades > 0 || InpMaxPortfolioDailyLossPct > 0.0)
+   {
+      int daily_trades = 0;
+      double realized_pnl = 0.0;
+      if (!GetPortfolioDailyStats(daily_trades, realized_pnl))
+      {
+         Print("GUARD REJECT: Shared portfolio daily history could not be counted safely.");
+         return false;
+      }
+      if (InpMaxPortfolioDailyTrades > 0 &&
+          daily_trades >= InpMaxPortfolioDailyTrades)
+      {
+         if (InpVerboseLog)
+            PrintFormat("GUARD REJECT: Shared portfolio daily trade limit reached (%d >= %d).",
+                        daily_trades, InpMaxPortfolioDailyTrades);
+         return false;
+      }
+
+      if (InpMaxPortfolioDailyLossPct > 0.0)
+      {
+         double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+         double floating_pnl = CurrentPortfolioFloatingPnL();
+         double portfolio_pnl_today = realized_pnl + floating_pnl;
+         double estimated_day_start_equity = equity - portfolio_pnl_today;
+         if (estimated_day_start_equity <= 0.0)
+            estimated_day_start_equity = AccountInfoDouble(ACCOUNT_BALANCE) -
+                                         realized_pnl;
+         if (equity <= 0.0 || estimated_day_start_equity <= 0.0 ||
+             !MathIsValidNumber(portfolio_pnl_today))
+         {
+            Print("GUARD REJECT: Shared portfolio equity state is invalid.");
+            return false;
+         }
+
+         double max_loss_money = estimated_day_start_equity *
+                                 InpMaxPortfolioDailyLossPct / 100.0;
+         if (portfolio_pnl_today <= -max_loss_money)
+         {
+            if (InpVerboseLog)
+               PrintFormat("GUARD REJECT: Shared portfolio daily loss reached (realized %.2f, floating %.2f, limit %.2f).",
+                           realized_pnl, floating_pnl, -max_loss_money);
+            return false;
+         }
+      }
+   }
+
+   return true;
+}
+
+bool CheckRiskGuards()
+{
+   return CheckDailyLimits();
+}
+
+bool UpdateDailyStats(int &daily_trades, double &daily_pnl, int &consec_losses)
+{
+   daily_trades = 0;
+   daily_pnl = 0.0;
+   consec_losses = 0;
+
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   dt.hour = 0;
+   dt.min = 0;
+   dt.sec = 0;
+   datetime midnight_today = StructToTime(dt);
+
+   if (!m_daily_stats_dirty && m_daily_cache_day == midnight_today)
+   {
+      daily_trades = m_daily_cache_trades;
+      daily_pnl = m_daily_cache_pnl;
+      consec_losses = m_daily_cache_consecutive_losses;
+      return true;
+   }
+
+   ResetLastError();
+   if (!HistorySelect(midnight_today, TimeCurrent() + 1))
+   {
+      PrintFormat("ERROR: [RSIFibEA] HistorySelect failed (Error: %d)", GetLastError());
+      return false;
+   }
+
+   int total_deals = HistoryDealsTotal();
+   DailyPositionStat groups[];
+   int group_count = 0;
+
+   for (int i = 0; i < total_deals; i++)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if (ticket == 0) continue;
+
+      long magic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
+      string symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+
+      if (magic == (long)InpMagicNumber && symbol == _Symbol)
+      {
+         double profit     = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+         double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+         double swap       = HistoryDealGetDouble(ticket, DEAL_SWAP);
+         double fee        = HistoryDealGetDouble(ticket, DEAL_FEE);
+         double net_pnl    = profit + commission + swap + fee;
+
+         daily_pnl += net_pnl;
+
+         long position_id = HistoryDealGetInteger(ticket, DEAL_POSITION_ID);
+         if (position_id <= 0)
+         {
+            PrintFormat("ERROR: [RSIFibEA] Deal #%llu has no valid position identifier.", ticket);
+            return false;
+         }
+
+         int group_index = -1;
+         for (int g = 0; g < group_count; g++)
+         {
+            if (groups[g].identifier == position_id)
+            {
+               group_index = g;
+               break;
+            }
+         }
+
+         if (group_index < 0)
+         {
+            group_index = group_count;
+            if (ArrayResize(groups, group_count + 1, 64) != group_count + 1)
+               return false;
+            groups[group_index].identifier = position_id;
+            groups[group_index].pnl = 0.0;
+            groups[group_index].last_exit_msc = 0;
+            groups[group_index].has_entry = false;
+            groups[group_index].has_exit = false;
+            group_count++;
+         }
+
+         groups[group_index].pnl += net_pnl;
+         if (entry == DEAL_ENTRY_IN || entry == DEAL_ENTRY_INOUT)
+            groups[group_index].has_entry = true;
+
+         if (entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
+         {
+            groups[group_index].has_exit = true;
+            long exit_msc = HistoryDealGetInteger(ticket, DEAL_TIME_MSC);
+            if (exit_msc > groups[group_index].last_exit_msc)
+               groups[group_index].last_exit_msc = exit_msc;
+         }
+      }
+   }
+
+   for (int g = 0; g < group_count; g++)
+   {
+      if (groups[g].has_entry)
+         daily_trades++;
+   }
+
+   // Daily PnL intentionally contains only today's deals. Consecutive-loss
+   // classification is different: a position closed today must include every
+   // deal attached to that position, including an entry commission charged
+   // before midnight. HistorySelectByPosition keeps that accounting exact
+   // without widening the daily-PnL window.
+   for (int g = 0; g < group_count; g++)
+   {
+      if (!groups[g].has_exit || IsPositionIdentifierOpen(groups[g].identifier))
+         continue;
+
+      ResetLastError();
+      if (!HistorySelectByPosition((ulong)groups[g].identifier))
+      {
+         PrintFormat("ERROR: [RSIFibEA] HistorySelectByPosition failed for #%I64d (Error: %d)",
+                     groups[g].identifier, GetLastError());
+         return false;
+      }
+
+      double complete_position_pnl = 0.0;
+      bool found_managed_deal = false;
+      int position_deals = HistoryDealsTotal();
+      for (int d = 0; d < position_deals; d++)
+      {
+         ulong deal_ticket = HistoryDealGetTicket(d);
+         if (deal_ticket == 0 ||
+             HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID) != groups[g].identifier ||
+             HistoryDealGetInteger(deal_ticket, DEAL_MAGIC) != (long)InpMagicNumber ||
+             HistoryDealGetString(deal_ticket, DEAL_SYMBOL) != _Symbol)
+            continue;
+
+         complete_position_pnl += HistoryDealGetDouble(deal_ticket, DEAL_PROFIT)
+                                  + HistoryDealGetDouble(deal_ticket, DEAL_COMMISSION)
+                                  + HistoryDealGetDouble(deal_ticket, DEAL_SWAP)
+                                  + HistoryDealGetDouble(deal_ticket, DEAL_FEE);
+         found_managed_deal = true;
+      }
+
+      if (!found_managed_deal || !MathIsValidNumber(complete_position_pnl))
+      {
+         PrintFormat("ERROR: [RSIFibEA] Complete deal history unavailable for position #%I64d.",
+                     groups[g].identifier);
+         return false;
+      }
+      groups[g].pnl = complete_position_pnl;
+   }
+
+   // Aggregate partial fills by position identifier, then inspect closed positions newest-first.
+   bool processed[];
+   if (ArrayResize(processed, group_count) != group_count)
+      return false;
+   for (int g = 0; g < group_count; g++)
+      processed[g] = false;
+
+   while (true)
+   {
+      int latest_index = -1;
+      long latest_exit_msc = -1;
+      for (int g = 0; g < group_count; g++)
+      {
+         if (processed[g] || !groups[g].has_exit || IsPositionIdentifierOpen(groups[g].identifier))
+            continue;
+         if (groups[g].last_exit_msc > latest_exit_msc)
+         {
+            latest_exit_msc = groups[g].last_exit_msc;
+            latest_index = g;
+         }
+      }
+
+      if (latest_index < 0)
+         break;
+
+      processed[latest_index] = true;
+      if (groups[latest_index].pnl < 0.0)
+         consec_losses++;
+      else
+         break;
+   }
+   m_daily_cache_day = midnight_today;
+   m_daily_cache_trades = daily_trades;
+   m_daily_cache_pnl = daily_pnl;
+   m_daily_cache_consecutive_losses = consec_losses;
+   m_daily_stats_dirty = false;
+   return true;
+}
+
+bool IsPositionIdentifierOpen(long identifier)
+{
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket > 0 && PositionGetInteger(POSITION_IDENTIFIER) == identifier)
+         return true;
+   }
+   return false;
+}
+
+double CurrentEAFloatingPnL()
+{
+   double pnl = 0.0;
+   for (int i = 0; i < PositionsTotal(); i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0)
+         continue;
+      if (PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber ||
+          PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+
+      pnl += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+   }
+   return pnl;
+}
+
+bool CheckATRRangeFilter(double range)
+{
+   if (InpMinRangeATR <= 0.0 && InpMaxRangeATR <= 0.0)
+      return true;
+
+   double atr_val = 0.0;
+   if (!GetATR(1, atr_val) || atr_val <= 0.0)
+   {
+      Print("GUARD REJECT: ATR filter is enabled but ATR data is unavailable or invalid.");
+      return false;
+   }
+
+   if (InpMinRangeATR > 0.0 && range < InpMinRangeATR * atr_val)
+      return false;
+
+   if (InpMaxRangeATR > 0.0 && range > InpMaxRangeATR * atr_val)
+      return false;
+
+   return true;
+}
+
+bool CheckRSIQualityFilter(ENUM_SIGNAL_DIR dir, double rsi_1, double rsi_2)
+{
+   if (!InpUseRSIQualityFilter)
+      return true;
+
+   if (dir == SIGNAL_BUY)
+   {
+      double delta = rsi_1 - rsi_2;
+      if (!MathIsValidNumber(delta) || delta < InpRSIMinExitDelta)
+         return false;
+
+      if (rsi_2 > InpOversoldLevel)
+         return false;
+      for (int s = 3; s <= 1 + InpRSIMinBarsInZone; s++)
+      {
+         double rsi_s = 0.0;
+         if (!GetRSI(s, rsi_s) || rsi_s > InpOversoldLevel)
+            return false;
+      }
+   }
+   else if (dir == SIGNAL_SELL)
+   {
+      double delta = rsi_2 - rsi_1;
+      if (!MathIsValidNumber(delta) || delta < InpRSIMinExitDelta)
+         return false;
+
+      if (rsi_2 < InpOverboughtLevel)
+         return false;
+      for (int s = 3; s <= 1 + InpRSIMinBarsInZone; s++)
+      {
+         double rsi_s = 0.0;
+         if (!GetRSI(s, rsi_s) || rsi_s < InpOverboughtLevel)
+            return false;
+      }
+   }
+   else
+      return false;
+
+   return true;
+}
+
+bool CheckRSIDivergenceFilter(ENUM_SIGNAL_DIR dir)
+{
+   if (!InpUseRSIDivergence)
+      return true;
+
+   int lookback = MathMax(5, MathMin(50, InpRSIDivLookbackBars));
+   double rsi_1 = 0.0;
+   if (!GetRSI(1, rsi_1))
+      return !InpRequireRSIDivergence;
+
+   if (dir == SIGNAL_BUY)
+   {
+      double price_1 = iLow(_Symbol, m_timeframe, 1);
+      if (price_1 <= 0.0 || !MathIsValidNumber(price_1))
+         return !InpRequireRSIDivergence;
+
+      int pivot_shift = -1;
+      double pivot_price = 0.0;
+      double pivot_rsi = 0.0;
+
+      for (int b = 3; b <= lookback - 1; b++)
+      {
+         double low_b = iLow(_Symbol, m_timeframe, b);
+         double low_prev = iLow(_Symbol, m_timeframe, b + 1);
+         double low_next = iLow(_Symbol, m_timeframe, b - 1);
+
+         if (low_b > 0.0 && low_b < low_prev && low_b < low_next) // Swing Low
+         {
+            double rsi_b = 0.0;
+            if (GetRSI(b, rsi_b))
+            {
+               pivot_shift = b;
+               pivot_price = low_b;
+               pivot_rsi = rsi_b;
+               break;
+            }
+         }
+      }
+
+      if (pivot_shift > 0)
+      {
+         // Regular Bullish Divergence: Lower Low on Price, Higher Low on RSI
+         if (price_1 < pivot_price && (rsi_1 - pivot_rsi) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Regular Bullish Div detected! Price: %.5f < %.5f (bar %d), RSI: %.2f > %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+         // Hidden Bullish Divergence: Higher Low on Price, Lower Low on RSI
+         else if (price_1 > pivot_price && (pivot_rsi - rsi_1) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Hidden Bullish Div detected! Price: %.5f > %.5f (bar %d), RSI: %.2f < %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+      }
+   }
+   else if (dir == SIGNAL_SELL)
+   {
+      double price_1 = iHigh(_Symbol, m_timeframe, 1);
+      if (price_1 <= 0.0 || !MathIsValidNumber(price_1))
+         return !InpRequireRSIDivergence;
+
+      int pivot_shift = -1;
+      double pivot_price = 0.0;
+      double pivot_rsi = 0.0;
+
+      for (int b = 3; b <= lookback - 1; b++)
+      {
+         double high_b = iHigh(_Symbol, m_timeframe, b);
+         double high_prev = iHigh(_Symbol, m_timeframe, b + 1);
+         double high_next = iHigh(_Symbol, m_timeframe, b - 1);
+
+         if (high_b > 0.0 && high_b > high_prev && high_b > high_next) // Swing High
+         {
+            double rsi_b = 0.0;
+            if (GetRSI(b, rsi_b))
+            {
+               pivot_shift = b;
+               pivot_price = high_b;
+               pivot_rsi = rsi_b;
+               break;
+            }
+         }
+      }
+
+      if (pivot_shift > 0)
+      {
+         // Regular Bearish Divergence: Higher High on Price, Lower High on RSI
+         if (price_1 > pivot_price && (pivot_rsi - rsi_1) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Regular Bearish Div detected! Price: %.5f > %.5f (bar %d), RSI: %.2f < %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+         // Hidden Bearish Divergence: Lower High on Price, Higher High on RSI
+         else if (price_1 < pivot_price && (rsi_1 - pivot_rsi) >= InpRSIDivMinPivotDiff)
+         {
+            if (InpVerboseLog)
+               PrintFormat("RSI DIV: [RSIFibEA] Hidden Bearish Div detected! Price: %.5f < %.5f (bar %d), RSI: %.2f > %.2f",
+                           price_1, pivot_price, pivot_shift, rsi_1, pivot_rsi);
+            return true;
+         }
+      }
+   }
+
+   if (InpRequireRSIDivergence)
+   {
+      if (InpVerboseLog)
+         Print("INFO: [RSIFibEA] Signal rejected because RSI Divergence was strictly required but none was confirmed.");
+      return false;
+   }
+
+   return true;
+}
+
+bool IsSafeTesterNewsPath(const string path)
+{
+   if (StringLen(path) < 5 || StringFind(path, "..") >= 0 ||
+       StringFind(path, ":") >= 0)
+      return false;
+   ushort first = StringGetCharacter(path, 0);
+   return (first != '/' && first != '\\');
+}
+
+bool LoadTesterNewsFile()
+{
+   m_tester_news_ready = false;
+   m_tester_news_coverage_from = 0;
+   m_tester_news_coverage_to = 0;
+   ArrayResize(m_tester_news_events, 0);
+
+   if (!IsSafeTesterNewsPath(InpTesterNewsFile))
+   {
+      Print("NEWS_FILE_ERROR|reason=unsafe_relative_path");
+      return false;
+   }
+
+   ResetLastError();
+   int handle = FileOpen(InpTesterNewsFile,
+                         FILE_READ | FILE_CSV | FILE_ANSI |
+                         FILE_COMMON | FILE_SHARE_READ, ';');
+   if (handle == INVALID_HANDLE)
+   {
+      PrintFormat("NEWS_FILE_ERROR|reason=open_failed|file=%s|error=%d",
+                  InpTesterNewsFile, GetLastError());
+      return false;
+   }
+
+   string key = FileReadString(handle);
+   string value = FileReadString(handle);
+   FileReadString(handle);
+   FileReadString(handle);
+   if (key != "schema" || value != "RSIFIB_NEWS_V1")
+   {
+      Print("NEWS_FILE_ERROR|reason=invalid_schema");
+      FileClose(handle);
+      return false;
+   }
+
+   key = FileReadString(handle);
+   value = FileReadString(handle);
+   FileReadString(handle);
+   FileReadString(handle);
+   if (key != "timezone" || value != "BROKER_SERVER")
+   {
+      Print("NEWS_FILE_ERROR|reason=invalid_timezone");
+      FileClose(handle);
+      return false;
+   }
+
+   key = FileReadString(handle);
+   value = FileReadString(handle);
+   FileReadString(handle);
+   FileReadString(handle);
+   m_tester_news_coverage_from = StringToTime(value);
+   if (key != "coverage_from" || m_tester_news_coverage_from <= 0)
+   {
+      Print("NEWS_FILE_ERROR|reason=invalid_coverage_from");
+      FileClose(handle);
+      return false;
+   }
+
+   key = FileReadString(handle);
+   value = FileReadString(handle);
+   FileReadString(handle);
+   FileReadString(handle);
+   m_tester_news_coverage_to = StringToTime(value);
+   if (key != "coverage_to" ||
+       m_tester_news_coverage_to <= m_tester_news_coverage_from)
+   {
+      Print("NEWS_FILE_ERROR|reason=invalid_coverage_to");
+      FileClose(handle);
+      return false;
+   }
+
+   string h_time = FileReadString(handle);
+   string h_currency = FileReadString(handle);
+   string h_importance = FileReadString(handle);
+   string h_name = FileReadString(handle);
+   if (h_time != "server_time" || h_currency != "currency" ||
+       h_importance != "importance" || h_name != "name")
+   {
+      Print("NEWS_FILE_ERROR|reason=invalid_header");
+      FileClose(handle);
+      return false;
+   }
+
+   datetime previous_time = 0;
+   int event_count = 0;
+   while (!FileIsEnding(handle))
+   {
+      string time_text = FileReadString(handle);
+      if (StringLen(time_text) == 0 && FileIsEnding(handle))
+         break;
+      string currency = FileReadString(handle);
+      string importance_text = FileReadString(handle);
+      string event_name = FileReadString(handle);
+      StringTrimLeft(currency);
+      StringTrimRight(currency);
+      StringToUpper(currency);
+
+      datetime event_time = StringToTime(time_text);
+      int importance = (int)StringToInteger(importance_text);
+      if (event_time <= 0 || event_time < previous_time ||
+          event_time < m_tester_news_coverage_from ||
+          event_time > m_tester_news_coverage_to ||
+          StringLen(currency) == 0 ||
+          importance < (int)CALENDAR_IMPORTANCE_NONE ||
+          importance > (int)CALENDAR_IMPORTANCE_HIGH ||
+          StringLen(event_name) == 0)
+      {
+         PrintFormat("NEWS_FILE_ERROR|reason=invalid_event|row=%d", event_count + 6);
+         FileClose(handle);
+         ArrayResize(m_tester_news_events, 0);
+         return false;
+      }
+
+      if (ArrayResize(m_tester_news_events, event_count + 1, 128) != event_count + 1)
+      {
+         Print("NEWS_FILE_ERROR|reason=allocation_failed");
+         FileClose(handle);
+         ArrayResize(m_tester_news_events, 0);
+         return false;
+      }
+      m_tester_news_events[event_count].time = event_time;
+      m_tester_news_events[event_count].currency = currency;
+      m_tester_news_events[event_count].importance = importance;
+      m_tester_news_events[event_count].name = event_name;
+      previous_time = event_time;
+      event_count++;
+   }
+   FileClose(handle);
+   m_tester_news_ready = true;
+   PrintFormat("NEWS_FILE_READY|file=%s|events=%d|coverage_from=%s|coverage_to=%s",
+               InpTesterNewsFile, event_count,
+               TimeToString(m_tester_news_coverage_from, TIME_DATE | TIME_MINUTES),
+               TimeToString(m_tester_news_coverage_to, TIME_DATE | TIME_MINUTES));
+   return true;
+}
+
+bool InitNewsSource()
+{
+   if (InpNewsMode == NEWS_DISABLED)
+      return true;
+   if (InpNewsMode == NEWS_LIVE_CALENDAR)
+   {
+      if (MQLInfoInteger(MQL_TESTER))
+      {
+         Print("NEWS_SOURCE_ERROR|reason=live_calendar_unavailable_in_tester|use=NEWS_TESTER_FILE");
+         return false;
+      }
+      return true;
+   }
+   if (InpNewsMode == NEWS_TESTER_FILE)
+      return LoadTesterNewsFile();
+   Print("NEWS_SOURCE_ERROR|reason=unsupported_mode");
+   return false;
+}
+
+bool NewsCurrencyRequested(string event_currency)
+{
+   StringTrimLeft(event_currency);
+   StringTrimRight(event_currency);
+   StringToUpper(event_currency);
+   string currencies[];
+   int count = StringSplit(InpNewsCurrency, ',', currencies);
+   if (count <= 0)
+      return false;
+   for (int i = 0; i < count; i++)
+   {
+      string requested = currencies[i];
+      StringTrimLeft(requested);
+      StringTrimRight(requested);
+      StringToUpper(requested);
+      if (requested == event_currency)
+         return true;
+   }
+   return false;
+}
+
+bool CheckLiveEconomicCalendar(const datetime time_from, const datetime time_to)
+{
+   MqlCalendarValue values[];
+   string currencies[];
+   int cur_count = StringSplit(InpNewsCurrency, ',', currencies);
+   if (cur_count <= 0)
+      return false;
+
+   for (int c = 0; c < cur_count; c++)
+   {
+      string curr = currencies[c];
+      StringTrimLeft(curr);
+      StringTrimRight(curr);
+      if (StringLen(curr) == 0)
+         return false;
+
+      ResetLastError();
+      int count = CalendarValueHistory(values, time_from, time_to, NULL, curr);
+      if (count < 0)
+      {
+         PrintFormat("NEWS_LIVE_ERROR|reason=value_history|currency=%s|error=%d|fail_closed=1",
+                     curr, GetLastError());
+         return false;
+      }
+      for (int i = 0; i < count; i++)
+      {
+         MqlCalendarEvent event;
+         ResetLastError();
+         if (!CalendarEventById(values[i].event_id, event))
+         {
+            PrintFormat("NEWS_LIVE_ERROR|reason=event_metadata|event_id=%llu|error=%d|fail_closed=1",
+                        values[i].event_id, GetLastError());
+            return false;
+         }
+         if (event.importance >= InpNewsMinImportance)
+         {
+            if (InpVerboseLog)
+               PrintFormat("NEWS_BLOCK|source=live|name=%s|currency=%s|time=%s",
+                           event.name, curr, TimeToString(values[i].time));
+            return false;
+         }
+      }
+   }
+   return true;
+}
+
+bool CheckTesterEconomicCalendar(const datetime time_from, const datetime time_to)
+{
+   if (!m_tester_news_ready ||
+       time_from < m_tester_news_coverage_from ||
+       time_to > m_tester_news_coverage_to)
+   {
+      PrintFormat("NEWS_FILE_BLOCK|reason=coverage|from=%s|to=%s|fail_closed=1",
+                  TimeToString(time_from, TIME_DATE | TIME_MINUTES),
+                  TimeToString(time_to, TIME_DATE | TIME_MINUTES));
+      return false;
+   }
+
+   int count = ArraySize(m_tester_news_events);
+   for (int i = 0; i < count; i++)
+   {
+      if (m_tester_news_events[i].time < time_from)
+         continue;
+      if (m_tester_news_events[i].time > time_to)
+         break;
+      if (m_tester_news_events[i].importance >= (int)InpNewsMinImportance &&
+          NewsCurrencyRequested(m_tester_news_events[i].currency))
+      {
+         if (InpVerboseLog)
+            PrintFormat("NEWS_BLOCK|source=tester_file|name=%s|currency=%s|time=%s",
+                        m_tester_news_events[i].name,
+                        m_tester_news_events[i].currency,
+                        TimeToString(m_tester_news_events[i].time));
+         return false;
+      }
+   }
+   return true;
+}
+
+bool CheckEconomicCalendarFilter()
+{
+   if (InpNewsMode == NEWS_DISABLED)
+      return true;
+
+   // MetaQuotes calendar timestamps are broker trade-server time. Tester-file
+   // timestamps use the simulated TimeCurrent() in that same convention.
+   datetime now = (InpNewsMode == NEWS_LIVE_CALENDAR)
+                  ? TimeTradeServer() : TimeCurrent();
+   if (now <= 0)
+      return false;
+   datetime time_from = now - (InpNewsMinsAfter * 60);
+   datetime time_to = now + (InpNewsMinsBefore * 60);
+
+   if (InpNewsMode == NEWS_LIVE_CALENDAR)
+      return CheckLiveEconomicCalendar(time_from, time_to);
+   if (InpNewsMode == NEWS_TESTER_FILE)
+      return CheckTesterEconomicCalendar(time_from, time_to);
+   return false;
+}
+
+bool CheckMarketStructureFilter(ENUM_SIGNAL_DIR dir)
+{
+   if (!InpUseMarketStructure || !InpRequireStructureBOS)
+      return true;
+
+   int lookback = MathMax(3, InpStructureSwingBars);
+   double close_1 = iClose(_Symbol, m_timeframe, 1);
+   if (close_1 <= 0.0 || !MathIsValidNumber(close_1))
+      return false;
+
+   if (dir == SIGNAL_BUY)
+   {
+      // Bullish BOS: the last closed candle must close above the complete
+      // preceding swing-high window (bars 2..lookback+1).
+      double swing_high = iHigh(_Symbol, m_timeframe, 2);
+      if (swing_high <= 0.0 || !MathIsValidNumber(swing_high))
+         return false;
+      for (int i = 3; i <= 1 + lookback; i++)
+      {
+         double high = iHigh(_Symbol, m_timeframe, i);
+         if (high <= 0.0 || !MathIsValidNumber(high))
+            return false;
+         if (high > swing_high)
+            swing_high = high;
+      }
+      return (close_1 > swing_high);
+   }
+   else if (dir == SIGNAL_SELL)
+   {
+      // Bearish BOS: close below the complete preceding swing-low window.
+      double swing_low = iLow(_Symbol, m_timeframe, 2);
+      if (swing_low <= 0.0 || !MathIsValidNumber(swing_low))
+         return false;
+      for (int i = 3; i <= 1 + lookback; i++)
+      {
+         double low = iLow(_Symbol, m_timeframe, i);
+         if (low <= 0.0 || !MathIsValidNumber(low))
+            return false;
+         if (low < swing_low)
+            swing_low = low;
+      }
+      return (close_1 < swing_low);
+   }
+   return false;
+}
+
+bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
+{
+   if (!InpUseMTFTrendFilter)
+      return true;
+
+   if ((dir != SIGNAL_BUY && dir != SIGNAL_SELL) ||
+       m_mtf_ema_handle == INVALID_HANDLE)
+      return false;
+
+   ENUM_TIMEFRAMES eval_tf = (InpMTFTimeframe == PERIOD_CURRENT)
+                             ? m_timeframe : InpMTFTimeframe;
+   double htf_close = iClose(_Symbol, eval_tf, 1);
+   if (htf_close <= 0.0 || !MathIsValidNumber(htf_close))
+      return false;
+
+   double ema_now_buf[1];
+   if (CopyBuffer(m_mtf_ema_handle, 0, 1, 1, ema_now_buf) != 1)
+      return false;
+
+   double htf_ema = ema_now_buf[0];
+   if (htf_ema == EMPTY_VALUE || !MathIsValidNumber(htf_ema) || htf_ema <= 0.0)
+      return false;
+
+   if ((dir == SIGNAL_BUY && htf_close <= htf_ema) ||
+       (dir == SIGNAL_SELL && htf_close >= htf_ema))
+      return false;
+
+   if (InpMTFRequireEMASlope)
+   {
+      double ema_past_buf[1];
+      int past_shift = 1 + InpMTFSlopeLookbackBars;
+      if (CopyBuffer(m_mtf_ema_handle, 0, past_shift, 1, ema_past_buf) != 1)
+         return false;
+
+      double past_ema = ema_past_buf[0];
+      if (past_ema == EMPTY_VALUE || !MathIsValidNumber(past_ema) || past_ema <= 0.0)
+         return false;
+
+      double slope_pct = (htf_ema - past_ema) / past_ema * 100.0;
+      if (!MathIsValidNumber(slope_pct))
+         return false;
+      // At a zero threshold, a flat EMA is still rejected. This expresses a
+      // directional macro trend without tuning a magnitude to one instrument.
+      if ((dir == SIGNAL_BUY && slope_pct <= InpMTFMinSlopePct) ||
+          (dir == SIGNAL_SELL && slope_pct >= -InpMTFMinSlopePct))
+         return false;
+   }
+
+   if (InpMTFUseRSIConfirm)
+   {
+      if (m_mtf_rsi_handle == INVALID_HANDLE)
+         return false;
+
+      double rsi_buf[1];
+      if (CopyBuffer(m_mtf_rsi_handle, 0, 1, 1, rsi_buf) != 1)
+         return false;
+
+      double htf_rsi = rsi_buf[0];
+      if (htf_rsi == EMPTY_VALUE || !MathIsValidNumber(htf_rsi) || htf_rsi < 0.0 || htf_rsi > 100.0)
+         return false;
+
+      if ((dir == SIGNAL_BUY && htf_rsi <= InpMTFRSIMidline) ||
+          (dir == SIGNAL_SELL && htf_rsi >= InpMTFRSIMidline))
+         return false;
+   }
+
+   return true;
+}
+
+bool CheckVolatilityRegimeFilter()
+{
+   if (!InpUseVolatilityRegime)
+      return true;
+
+   if (m_vol_fast_atr_handle == INVALID_HANDLE || m_vol_slow_atr_handle == INVALID_HANDLE)
+      return false;
+
+   double fast_buf[1];
+   if (CopyBuffer(m_vol_fast_atr_handle, 0, 1, 1, fast_buf) != 1)
+      return false;
+
+   double slow_buf[1];
+   if (CopyBuffer(m_vol_slow_atr_handle, 0, 1, 1, slow_buf) != 1)
+      return false;
+
+   double fast_atr = fast_buf[0];
+   double slow_atr = slow_buf[0];
+
+   if (fast_atr == EMPTY_VALUE || slow_atr == EMPTY_VALUE ||
+       !MathIsValidNumber(fast_atr) || !MathIsValidNumber(slow_atr) ||
+       fast_atr <= 0.0 || slow_atr <= 0.0)
+      return false;
+
+   double vol_ratio = fast_atr / slow_atr;
+   if (!MathIsValidNumber(vol_ratio))
+      return false;
+
+   if (vol_ratio < InpVolMinRatio || vol_ratio > InpVolMaxRatio)
+      return false;
+
+   return true;
+}
+
+bool CheckStopsLevel(double entry, double stop, double target)
+{
+   long stops_level_pts = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double min_dist = stops_level_pts * point;
+
+   if (min_dist <= 0.0)
+      return true;
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   if (m_setup.dir == SIGNAL_BUY)
+   {
+      if ((ask - entry) < min_dist) return false;
+      if ((entry - stop) < min_dist) return false;
+      if ((target - entry) < min_dist) return false;
+   }
+   else if (m_setup.dir == SIGNAL_SELL)
+   {
+      if ((entry - bid) < min_dist) return false;
+      if ((stop - entry) < min_dist) return false;
+      if ((entry - target) < min_dist) return false;
+   }
+
+   return true;
+}
+
+bool GetClosedRSIPair(double &rsi_1, double &rsi_2)
+{
+   rsi_1 = 0.0;
+   rsi_2 = 0.0;
+   if (m_rsi_handle == INVALID_HANDLE)
+      return false;
+
+   double values[2];
+   if (CopyBuffer(m_rsi_handle, 0, 1, 2, values) != 2)
+   {
+      if (InpVerboseLog)
+         PrintFormat("WARNING: CopyBuffer iRSI pair failed (Error: %d)", GetLastError());
+      return false;
+   }
+
+   // CopyBuffer stores the oldest requested value first: [0]=shift 2, [1]=shift 1.
+   rsi_2 = values[0];
+   rsi_1 = values[1];
+   return (rsi_1 != EMPTY_VALUE && rsi_2 != EMPTY_VALUE &&
+           MathIsValidNumber(rsi_1) && MathIsValidNumber(rsi_2) &&
+           rsi_1 >= 0.0 && rsi_1 <= 100.0 && rsi_2 >= 0.0 && rsi_2 <= 100.0);
+}
+
+bool GetRSI(int shift, double &val)
+{
+   if (m_rsi_handle == INVALID_HANDLE) return false;
+   double buf[1];
+   if (CopyBuffer(m_rsi_handle, 0, shift, 1, buf) != 1)
+   {
+      if (InpVerboseLog)
+         PrintFormat("WARNING: CopyBuffer iRSI failed at shift %d (Error: %d)", shift, GetLastError());
+      return false;
+   }
+   val = buf[0];
+   return (val != EMPTY_VALUE && MathIsValidNumber(val) && val >= 0.0 && val <= 100.0);
+}
+
+bool GetATR(int shift, double &val)
+{
+   if (m_atr_handle == INVALID_HANDLE) return false;
+   double buf[1];
+   if (CopyBuffer(m_atr_handle, 0, shift, 1, buf) != 1)
+   {
+      if (InpVerboseLog)
+         PrintFormat("WARNING: CopyBuffer iATR failed at shift %d (Error: %d)", shift, GetLastError());
+      return false;
+   }
+   val = buf[0];
+   return (val != EMPTY_VALUE && MathIsValidNumber(val) && val > 0.0);
+}
+
+double NormalizePriceDirectional(double price, int direction)
+{
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   if (tick_size <= 0.0 || digits < 0 || !MathIsValidNumber(price))
+      return 0.0;
+
+   double scaled = price / tick_size;
+   if (!MathIsValidNumber(scaled))
+      return 0.0;
+   double steps = MathRound(scaled);
+   if (direction < 0)
+      steps = MathFloor(scaled + 1e-9);
+   else if (direction > 0)
+      steps = MathCeil(scaled - 1e-9);
+
+   return NormalizeDouble(steps * tick_size, digits);
+}
+
+int VolumeDigits(double step_vol)
+{
+   for (int digits = 0; digits <= 8; digits++)
+   {
+      if (MathAbs(NormalizeDouble(step_vol, digits) - step_vol) < 1e-12)
+         return digits;
+   }
+   return 8;
+}
+
+bool CanSplitVolume(const double volume,
+                    const double close_percent,
+                    double &close_volume,
+                    double &remaining_volume)
+{
+   close_volume = 0.0;
+   remaining_volume = 0.0;
+   double min_volume = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double step_volume = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   if (!MathIsValidNumber(volume) || volume <= 0.0 ||
+       !MathIsValidNumber(close_percent) || close_percent <= 0.0 || close_percent >= 100.0 ||
+       min_volume <= 0.0 || step_volume <= 0.0)
+      return false;
+
+   int digits = VolumeDigits(step_volume);
+   double requested_close = volume * close_percent / 100.0;
+   double close_steps = MathFloor(requested_close / step_volume + 1e-9);
+   close_volume = NormalizeDouble(close_steps * step_volume, digits);
+   remaining_volume = NormalizeDouble(volume - close_volume, digits);
+
+   if (close_volume < min_volume || remaining_volume < min_volume)
+      return false;
+
+   double close_alignment = MathAbs(close_volume / step_volume -
+                                    MathRound(close_volume / step_volume));
+   double remain_alignment = MathAbs(remaining_volume / step_volume -
+                                     MathRound(remaining_volume / step_volume));
+   return (close_alignment <= 1e-7 && remain_alignment <= 1e-7);
+}
+
+bool ExecuteManagedPartialClose(const ulong ticket, const double close_volume)
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked partial close");
+      return false;
+   }
+   if (ticket == 0 || !PositionSelectByTicket(ticket) ||
+       PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return false;
+
+   ENUM_POSITION_TYPE position_type =
+      (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_ACCOUNT_MARGIN_MODE margin_mode =
+      (ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE);
+   bool requested = false;
+
+   if (margin_mode == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
+      requested = m_safety_trade.PositionClosePartial(ticket, close_volume);
+   else if (position_type == POSITION_TYPE_BUY)
+      requested = m_safety_trade.Sell(close_volume, _Symbol, 0.0, 0.0, 0.0,
+                                      "RSIFibEA_partial_reduce");
+   else if (position_type == POSITION_TYPE_SELL)
+      requested = m_safety_trade.Buy(close_volume, _Symbol, 0.0, 0.0, 0.0,
+                                     "RSIFibEA_partial_reduce");
+
+   uint retcode = m_safety_trade.ResultRetcode();
+   bool confirmed = requested &&
+                    (retcode == TRADE_RETCODE_DONE ||
+                     retcode == TRADE_RETCODE_DONE_PARTIAL);
+   if (!confirmed)
+      PrintFormat("PARTIAL_CLOSE_FAILED|ticket=%llu|volume=%.8f|retcode=%u|description=%s",
+                  ticket, close_volume, retcode,
+                  m_safety_trade.ResultRetcodeDescription());
+   return confirmed;
+}
+
+bool ExecuteManagedPositionClose(const ulong ticket, const string reason)
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked managed position close");
+      return false;
+   }
+   if (ticket == 0)
+      return false;
+
+   if (!PositionSelectByTicket(ticket))
+   {
+      // The broker may already have closed the position between ticks.
+      m_sync_required = true;
+      return true;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+   {
+      EnterFault(StringFormat("Managed close refused foreign position #%llu", ticket));
+      return false;
+   }
+
+   if (m_last_managed_close_attempt != 0 &&
+       TimeCurrent() - m_last_managed_close_attempt < 10)
+      return false;
+   m_last_managed_close_attempt = TimeCurrent();
+
+   ResetLastError();
+   bool requested = m_safety_trade.PositionClose(ticket);
+   uint retcode = m_safety_trade.ResultRetcode();
+   bool confirmed = requested &&
+                    (retcode == TRADE_RETCODE_DONE ||
+                     retcode == TRADE_RETCODE_DONE_PARTIAL);
+   if (confirmed)
+   {
+      m_sync_required = true;
+      PrintFormat("MANAGED_CLOSE_CONFIRMED|reason=%s|ticket=%llu|retcode=%u",
+                  reason, ticket, retcode);
+      return true;
+   }
+
+   PrintFormat("MANAGED_CLOSE_FAILED|reason=%s|ticket=%llu|retcode=%u|description=%s|error=%d|retry=true",
+               reason, ticket, retcode,
+               m_safety_trade.ResultRetcodeDescription(), GetLastError());
+   return false;
+}
+
+double NormalizeVolume(double raw_vol)
+{
+   double step_vol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   double min_vol  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double max_vol  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+
+   if (step_vol <= 0.0 || raw_vol < min_vol)
+      return 0.0;
+
+   int vol_digits = VolumeDigits(step_vol);
+   double steps = MathFloor(raw_vol / step_vol);
+   double vol = NormalizeDouble(steps * step_vol, vol_digits);
+
+   // NormalizeDouble must never turn a floor operation into risk overshoot.
+   if (vol > raw_vol)
+      vol = NormalizeDouble(vol - step_vol, vol_digits);
+
+   if (vol < min_vol) return 0.0;
+   if (vol > max_vol)
+   {
+      double max_steps = MathFloor(max_vol / step_vol);
+      vol = NormalizeDouble(max_steps * step_vol, vol_digits);
+   }
+
+   return vol;
+}
+
+bool CalculatePositionSize(double entry, double sl, ENUM_ORDER_TYPE order_type, double &out_vol)
+{
+   out_vol = 0.0;
+   m_last_sizing_risk_budget = 0.0;
+   m_last_sizing_loss_per_lot = 0.0;
+   m_last_sizing_min_lot_loss = 0.0;
+   m_last_sizing_required_equity = 0.0;
+   m_last_sizing_raw_volume = 0.0;
+   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   if (equity <= 0.0 || InpRiskPercent <= 0.0)
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+
+   double risk_money = equity * (InpRiskPercent / 100.0);
+   m_last_sizing_risk_budget = risk_money;
+
+   ENUM_ORDER_TYPE calc_type;
+   if (order_type == ORDER_TYPE_BUY_LIMIT)
+      calc_type = ORDER_TYPE_BUY;
+   else if (order_type == ORDER_TYPE_SELL_LIMIT)
+      calc_type = ORDER_TYPE_SELL;
+   else
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double min_vol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double max_vol = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   if (tick_size <= 0.0 || min_vol <= 0.0 || max_vol < min_vol)
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+
+   double reference_vol = MathMin(1.0, max_vol);
+   if (reference_vol < min_vol)
+      reference_vol = min_vol;
+
+   double adverse_entry = entry;
+   double adverse_stop = sl;
+   double entry_slippage = (double)InpAdverseEntrySlippageTicks * tick_size;
+   double stop_slippage = (double)InpAdverseStopSlippageTicks * tick_size;
+   if (calc_type == ORDER_TYPE_BUY)
+   {
+      adverse_entry += entry_slippage;
+      adverse_stop -= stop_slippage;
+   }
+   else
+   {
+      adverse_entry -= entry_slippage;
+      adverse_stop += stop_slippage;
+   }
+
+   double profit_reference = 0.0;
+   if (!OrderCalcProfit(calc_type, _Symbol, reference_vol,
+                        adverse_entry, adverse_stop, profit_reference))
+   {
+      if (InpVerboseLog)
+         PrintFormat("WARNING: OrderCalcProfit failed for reference volume %.8f. Error: %d",
+                     reference_vol, GetLastError());
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+   }
+
+   if (!MathIsValidNumber(profit_reference) || profit_reference >= 0.0)
+   {
+      if (InpVerboseLog)
+         PrintFormat("WARNING: OrderCalcProfit did not return a valid adverse loss: %.2f",
+                     profit_reference);
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+   }
+
+   double loss_per_lot = (-profit_reference / reference_vol) +
+                         InpEstimatedRoundTurnCostPerLot;
+   if (!MathIsValidNumber(loss_per_lot) || loss_per_lot <= 0.0)
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+
+   m_last_sizing_loss_per_lot = loss_per_lot;
+   m_last_sizing_min_lot_loss = loss_per_lot * min_vol;
+   m_last_sizing_required_equity = m_last_sizing_min_lot_loss /
+                                   (InpRiskPercent / 100.0);
+
+   double raw_vol = risk_money / loss_per_lot;
+   m_last_sizing_raw_volume = raw_vol;
+   out_vol = NormalizeVolume(raw_vol);
+
+   if (out_vol < min_vol)
+   {
+      double actual_min_risk_pct = 100.0 * m_last_sizing_min_lot_loss / equity;
+      PrintFormat("SIZING_REJECT_MIN_LOT|equity=%.2f|risk_pct=%.5f|budget=%.2f|loss_per_lot=%.2f|min_lot=%.8f|min_lot_loss=%.2f|min_actual_risk_pct=%.5f|required_equity=%.2f|raw_volume=%.8f",
+                  equity, InpRiskPercent, risk_money, loss_per_lot, min_vol,
+                  m_last_sizing_min_lot_loss, actual_min_risk_pct,
+                  m_last_sizing_required_equity, raw_vol);
+      return RejectSizing(FUNNEL_REJECT_SIZE_MIN_LOT);
+   }
+
+   // Recalculate the exact normalized volume and reject even a rounding-cent
+   // overshoot. Costs are explicitly included in the same account currency.
+   double exact_profit = 0.0;
+   if (!OrderCalcProfit(calc_type, _Symbol, out_vol,
+                        adverse_entry, adverse_stop, exact_profit) ||
+       !MathIsValidNumber(exact_profit) || exact_profit >= 0.0)
+      return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
+   double exact_worst_loss = -exact_profit +
+                             InpEstimatedRoundTurnCostPerLot * out_vol;
+   if (!MathIsValidNumber(exact_worst_loss) || exact_worst_loss > risk_money + 0.005)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Normalized volume worst loss %.2f exceeds budget %.2f.",
+                     exact_worst_loss, risk_money);
+      out_vol = 0.0;
+      return RejectSizing(FUNNEL_REJECT_SIZE_RISK);
+   }
+
+   double required_margin = 0.0;
+   ResetLastError();
+   if (!OrderCalcMargin(calc_type, _Symbol, out_vol, adverse_entry, required_margin) ||
+       !MathIsValidNumber(required_margin) || required_margin <= 0.0)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: OrderCalcMargin failed or returned invalid margin. Error: %d",
+                     GetLastError());
+      out_vol = 0.0;
+      return RejectSizing(FUNNEL_REJECT_SIZE_MARGIN);
+   }
+
+   double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   double allowed_margin = free_margin * InpMaxFreeMarginUsagePct / 100.0;
+   if (!MathIsValidNumber(free_margin) || free_margin <= 0.0 ||
+       required_margin > allowed_margin)
+   {
+      if (InpVerboseLog)
+         PrintFormat("GUARD REJECT: Required margin %.2f exceeds %.2f%% of free margin (limit %.2f).",
+                     required_margin, InpMaxFreeMarginUsagePct, allowed_margin);
+      out_vol = 0.0;
+      return RejectSizing(FUNNEL_REJECT_SIZE_MARGIN);
+   }
+
+   return true;
+}
+
+bool FindOriginalLimitGeometry(const long position_identifier,
+                               const datetime position_time,
+                               double &requested_entry,
+                               double &original_stop,
+                               double &original_target)
+{
+   requested_entry = 0.0;
+   original_stop = 0.0;
+   original_target = 0.0;
+   if (position_identifier <= 0 || position_time <= 0)
+      return false;
+
+   long lookback_seconds = 86400;
+   int timeframe_seconds = PeriodSeconds(m_timeframe);
+   if (timeframe_seconds > 0)
+   {
+      long setup_window = (long)timeframe_seconds * (long)(InpPendingOrderBars + 2);
+      if (setup_window > lookback_seconds)
+         lookback_seconds = setup_window;
+   }
+   datetime history_from = (position_time > lookback_seconds)
+                           ? position_time - (datetime)lookback_seconds : 0;
+   if (!HistorySelect(history_from, TimeCurrent()))
+      return false;
+
+   int deals_total = HistoryDealsTotal();
+   for (int i = 0; i < deals_total; i++)
+   {
+      ulong deal_ticket = HistoryDealGetTicket(i);
+      if (deal_ticket == 0 ||
+          HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID) != position_identifier ||
+          HistoryDealGetInteger(deal_ticket, DEAL_MAGIC) != (long)InpMagicNumber ||
+          HistoryDealGetString(deal_ticket, DEAL_SYMBOL) != _Symbol)
+         continue;
+
+      ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+      if (deal_entry != DEAL_ENTRY_IN && deal_entry != DEAL_ENTRY_INOUT)
+         continue;
+
+      ulong order_ticket = (ulong)HistoryDealGetInteger(deal_ticket, DEAL_ORDER);
+      if (order_ticket == 0)
+         continue;
+      ENUM_ORDER_TYPE order_type = (ENUM_ORDER_TYPE)HistoryOrderGetInteger(order_ticket, ORDER_TYPE);
+      if (order_type != ORDER_TYPE_BUY_LIMIT && order_type != ORDER_TYPE_SELL_LIMIT)
+         continue;
+
+      double order_price = HistoryOrderGetDouble(order_ticket, ORDER_PRICE_OPEN);
+      double order_stop = HistoryOrderGetDouble(order_ticket, ORDER_SL);
+      double order_target = HistoryOrderGetDouble(order_ticket, ORDER_TP);
+      if (order_price > 0.0 && order_stop > 0.0 && order_target > 0.0 &&
+          MathIsValidNumber(order_price) && MathIsValidNumber(order_stop) &&
+          MathIsValidNumber(order_target))
+      {
+         requested_entry = order_price;
+         original_stop = order_stop;
+         original_target = order_target;
+         return true;
+      }
+   }
+   return false;
+}
+
+bool RestoreSetupGeometry(ENUM_SIGNAL_DIR dir, double entry, double stop,
+                          double target, datetime setup_time,
+                          double immutable_original_stop)
+{
+   if (dir == SIGNAL_NONE || entry <= 0.0 || stop <= 0.0 || target <= 0.0)
+      return false;
+
+   // Restore from immutable entry/TP geometry. The live SL may already have moved
+   // to break-even and therefore must never define the original strategy range.
+   double ratio_distance = InpTargetRatio - InpEntryRatio;
+   if (ratio_distance <= 0.0)
+      return false;
+
+   double restored_range = (dir == SIGNAL_BUY)
+                           ? (target - entry) / ratio_distance
+                           : (entry - target) / ratio_distance;
+   if (restored_range <= 0.0 || !MathIsValidNumber(restored_range))
+      return false;
+
+   double restored_p0 = (dir == SIGNAL_BUY)
+                        ? entry - InpEntryRatio * restored_range
+                        : entry + InpEntryRatio * restored_range;
+   double ratio_stop = (dir == SIGNAL_BUY)
+                       ? NormalizePriceDirectional(restored_p0 + InpStopRatio * restored_range, -1)
+                       : NormalizePriceDirectional(restored_p0 - InpStopRatio * restored_range, 1);
+   double original_stop = (immutable_original_stop > 0.0)
+                          ? immutable_original_stop : ratio_stop;
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double tolerance = MathMax(tick_size, SymbolInfoDouble(_Symbol, SYMBOL_POINT)) * 2.0;
+   if (ratio_stop <= 0.0 || original_stop <= 0.0 || tolerance <= 0.0)
+      return false;
+
+   if ((dir == SIGNAL_BUY && (original_stop >= entry || original_stop >= target)) ||
+       (dir == SIGNAL_SELL && (original_stop <= entry || original_stop <= target)))
+      return false;
+
+   // A moved SL is valid only when it is at least as protective as the original.
+   if (dir == SIGNAL_BUY && (stop < original_stop - tolerance || stop >= target))
+      return false;
+   if (dir == SIGNAL_SELL && (stop > original_stop + tolerance || stop <= target))
+      return false;
+
+   m_setup.dir = dir;
+   m_setup.signal_time = setup_time;
+   m_setup.anchor_time = setup_time;
+   m_setup.pending_order_time = setup_time;
+   m_setup.range = restored_range;
+   m_setup.entry_price = entry;
+   m_setup.stop_price = original_stop;
+   m_setup.target_price = target;
+
+   if (dir == SIGNAL_BUY)
+   {
+      m_setup.P0 = restored_p0;
+      m_setup.P1 = m_setup.P0 + restored_range;
+      m_setup.visual_target_price = NormalizePriceDirectional(m_setup.P0 + InpVisualTargetRatio * restored_range, 0);
+   }
+   else
+   {
+      m_setup.P0 = restored_p0;
+      m_setup.P1 = m_setup.P0 - restored_range;
+      m_setup.visual_target_price = NormalizePriceDirectional(m_setup.P0 - InpVisualTargetRatio * restored_range, 0);
+   }
+
+   return true;
+}
+
+bool CalculateCostAwareBreakEvenStop(const ENUM_SIGNAL_DIR dir,
+                                     const double entry,
+                                     const double volume,
+                                     double &out_stop)
+{
+   out_stop = 0.0;
+   if ((dir != SIGNAL_BUY && dir != SIGNAL_SELL) ||
+       entry <= 0.0 || volume <= 0.0)
+      return false;
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if (tick_size <= 0.0 || !MathIsValidNumber(tick_size))
+      return false;
+
+   double required_profit = InpBreakEvenCoversCosts
+                            ? InpEstimatedRoundTurnCostPerLot * volume
+                            : 0.0;
+   if (!MathIsValidNumber(required_profit) || required_profit < 0.0)
+      return false;
+
+   ENUM_ORDER_TYPE calc_type = (dir == SIGNAL_BUY)
+                               ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+   long cost_ticks = 0;
+   if (required_profit > 0.0)
+   {
+      const long max_search_ticks = 1000000L;
+      long low_ticks = 0;
+      long high_ticks = 1;
+      bool upper_bound_found = false;
+
+      while (high_ticks <= max_search_ticks)
+      {
+         double candidate = (dir == SIGNAL_BUY)
+                            ? entry + (double)high_ticks * tick_size
+                            : entry - (double)high_ticks * tick_size;
+         double gross_profit = 0.0;
+         if (candidate <= 0.0 ||
+             !OrderCalcProfit(calc_type, _Symbol, volume,
+                              entry, candidate, gross_profit) ||
+             !MathIsValidNumber(gross_profit))
+            return false;
+
+         if (gross_profit + 0.0000001 >= required_profit)
+         {
+            upper_bound_found = true;
+            break;
+         }
+
+         low_ticks = high_ticks;
+         if (high_ticks > max_search_ticks / 2)
+            break;
+         high_ticks *= 2;
+      }
+
+      if (!upper_bound_found)
+         return false;
+
+      while (low_ticks + 1 < high_ticks)
+      {
+         long middle_ticks = low_ticks + (high_ticks - low_ticks) / 2;
+         double candidate = (dir == SIGNAL_BUY)
+                            ? entry + (double)middle_ticks * tick_size
+                            : entry - (double)middle_ticks * tick_size;
+         double gross_profit = 0.0;
+         if (candidate <= 0.0 ||
+             !OrderCalcProfit(calc_type, _Symbol, volume,
+                              entry, candidate, gross_profit) ||
+             !MathIsValidNumber(gross_profit))
+            return false;
+         if (gross_profit + 0.0000001 >= required_profit)
+            high_ticks = middle_ticks;
+         else
+            low_ticks = middle_ticks;
+      }
+      cost_ticks = high_ticks;
+   }
+
+   long total_ticks = cost_ticks + (long)InpBEOffsetTicks;
+   double raw_stop = (dir == SIGNAL_BUY)
+                     ? entry + (double)total_ticks * tick_size
+                     : entry - (double)total_ticks * tick_size;
+   out_stop = NormalizePriceDirectional(raw_stop,
+                                        dir == SIGNAL_BUY ? -1 : 1);
+   return (out_stop > 0.0 && MathIsValidNumber(out_stop));
+}
+
+bool CheckAndApplyBreakEven()
+{
+   if (!InpUseBreakEven || m_setup.position_ticket == 0)
+      return true;
+
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked break-even modification");
+      return false;
+   }
+
+   datetime now = TimeCurrent();
+   if (m_last_break_even_attempt != 0 && now - m_last_break_even_attempt < 1)
+      return true;
+
+   if (!PositionSelectByTicket(m_setup.position_ticket))
+   {
+      m_sync_required = true;
+      return false;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return false;
+
+   ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   double current_sl = PositionGetDouble(POSITION_SL);
+   double current_tp = PositionGetDouble(POSITION_TP);
+   if (entry <= 0.0 || current_sl <= 0.0 || current_tp <= 0.0 ||
+       m_setup.range <= 0.0 || m_setup.dir != dir)
+      return false;
+
+   MqlTick tick;
+   if (!SymbolInfoTick(_Symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return false;
+
+   double trigger = (dir == SIGNAL_BUY)
+                    ? m_setup.P0 + InpBETriggerFibRatio * m_setup.range
+                    : m_setup.P0 - InpBETriggerFibRatio * m_setup.range;
+   if ((dir == SIGNAL_BUY && tick.bid < trigger) ||
+       (dir == SIGNAL_SELL && tick.ask > trigger))
+      return true;
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (tick_size <= 0.0 || point <= 0.0)
+      return false;
+
+   double desired_sl = 0.0;
+   if (!CalculateCostAwareBreakEvenStop(dir, entry, volume, desired_sl))
+      return false;
+   double tolerance = 0.5 * tick_size;
+   if (desired_sl <= 0.0)
+      return false;
+
+   // Idempotence and monotonicity: never make an existing stop less protective.
+   if ((dir == SIGNAL_BUY && current_sl >= desired_sl - tolerance) ||
+       (dir == SIGNAL_SELL && current_sl <= desired_sl + tolerance))
+      return true;
+
+   long stops_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long freeze_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double min_distance = (double)MathMax(stops_points, freeze_points) * point;
+   if ((dir == SIGNAL_BUY && tick.bid - desired_sl < min_distance) ||
+       (dir == SIGNAL_SELL && desired_sl - tick.ask < min_distance))
+      return true;
+
+   m_last_break_even_attempt = now;
+   bool modified = m_safety_trade.PositionModify(m_setup.position_ticket, desired_sl, current_tp);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (modified && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_NO_CHANGES))
+   {
+      m_sync_required = true;
+      m_last_status = "break-even active";
+      PrintFormat("MANAGEMENT: [RSIFibEA] Position #%llu SL moved to %.5f at Fib %.2f.",
+                  m_setup.position_ticket, desired_sl, InpBETriggerFibRatio);
+      return true;
+   }
+
+   m_last_status = "break-even retry pending";
+   PrintFormat("WARNING: [RSIFibEA] Break-even modify failed for #%llu. Retcode: %u (%s).",
+               m_setup.position_ticket, retcode, m_safety_trade.ResultRetcodeDescription());
+   return false;
+}
+
+bool CheckAndApplyRiskTrailingStop()
+{
+   if (!InpUseRiskTrailingStop || m_setup.position_ticket == 0)
+      return true;
+
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked R-multiple trailing modification");
+      return false;
+   }
+
+   datetime now = TimeCurrent();
+   if (m_last_break_even_attempt != 0 && now - m_last_break_even_attempt < 1)
+      return true;
+
+   if (!PositionSelectByTicket(m_setup.position_ticket))
+   {
+      m_sync_required = true;
+      return false;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return false;
+
+   ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   double current_sl = PositionGetDouble(POSITION_SL);
+   double current_tp = PositionGetDouble(POSITION_TP);
+   double initial_risk = MathAbs(entry - m_setup.stop_price);
+   if (entry <= 0.0 || volume <= 0.0 || current_sl <= 0.0 ||
+       current_tp <= 0.0 || initial_risk <= 0.0 || m_setup.dir != dir ||
+       (dir == SIGNAL_BUY && m_setup.stop_price >= entry) ||
+       (dir == SIGNAL_SELL && m_setup.stop_price <= entry))
+      return false;
+
+   MqlTick tick;
+   if (!SymbolInfoTick(_Symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return false;
+
+   double favorable_distance = (dir == SIGNAL_BUY)
+                               ? tick.bid - entry : entry - tick.ask;
+   double favorable_r = favorable_distance / initial_risk;
+   if (!MathIsValidNumber(favorable_r) || favorable_r < InpRiskTrailTriggerR)
+      return true;
+
+   double completed_steps = MathFloor(
+      (favorable_r - InpRiskTrailTriggerR) / InpRiskTrailStepR + 0.000000001);
+   double locked_r = InpRiskTrailLockR + completed_steps * InpRiskTrailStepR;
+   double desired_sl = (dir == SIGNAL_BUY)
+                       ? entry + locked_r * initial_risk
+                       : entry - locked_r * initial_risk;
+
+   double cost_floor_sl = 0.0;
+   if (!CalculateCostAwareBreakEvenStop(dir, entry, volume, cost_floor_sl))
+      return false;
+   if (dir == SIGNAL_BUY)
+      desired_sl = MathMax(desired_sl, cost_floor_sl);
+   else
+      desired_sl = MathMin(desired_sl, cost_floor_sl);
+   desired_sl = NormalizePriceDirectional(desired_sl,
+                                          dir == SIGNAL_BUY ? -1 : 1);
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (desired_sl <= 0.0 || tick_size <= 0.0 || point <= 0.0)
+      return false;
+
+   double tolerance = 0.5 * tick_size;
+   if ((dir == SIGNAL_BUY && current_sl >= desired_sl - tolerance) ||
+       (dir == SIGNAL_SELL && current_sl <= desired_sl + tolerance))
+      return true;
+
+   long stops_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long freeze_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double min_distance = (double)MathMax(stops_points, freeze_points) * point;
+   if ((dir == SIGNAL_BUY && tick.bid - desired_sl < min_distance) ||
+       (dir == SIGNAL_SELL && desired_sl - tick.ask < min_distance))
+      return true;
+
+   m_last_break_even_attempt = now;
+   bool modified = m_safety_trade.PositionModify(m_setup.position_ticket,
+                                                  desired_sl, current_tp);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (modified &&
+       (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_NO_CHANGES))
+   {
+      m_sync_required = true;
+      m_last_status = "R-multiple trailing active";
+      PrintFormat("MANAGEMENT: [RSIFibEA] Position #%llu SL trailed to %.5f (market %.2fR, locked %.2fR).",
+                  m_setup.position_ticket, desired_sl, favorable_r, locked_r);
+      return true;
+   }
+
+   m_last_status = "R-multiple trailing retry pending";
+   PrintFormat("WARNING: [RSIFibEA] R-multiple trailing failed for #%llu. Retcode: %u (%s).",
+               m_setup.position_ticket, retcode,
+               m_safety_trade.ResultRetcodeDescription());
+   return false;
+}
+
+bool CheckAndApplyFibTrailingStop()
+{
+   if (!InpUseFibTrailingStop || m_setup.position_ticket == 0)
+      return true;
+
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked trailing-stop modification");
+      return false;
+   }
+
+   datetime now = TimeCurrent();
+   if (m_last_break_even_attempt != 0 && now - m_last_break_even_attempt < 1)
+      return true;
+
+   if (!PositionSelectByTicket(m_setup.position_ticket))
+   {
+      m_sync_required = true;
+      return false;
+   }
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return false;
+
+   ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+   double current_sl = PositionGetDouble(POSITION_SL);
+   double current_tp = PositionGetDouble(POSITION_TP);
+   if (entry <= 0.0 || current_sl <= 0.0 || current_tp <= 0.0 ||
+       m_setup.range <= 0.0 || m_setup.dir != dir)
+      return false;
+
+   MqlTick tick;
+   if (!SymbolInfoTick(_Symbol, tick) || tick.bid <= 0.0 || tick.ask <= 0.0)
+      return false;
+
+   double tick_size = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (tick_size <= 0.0 || point <= 0.0)
+      return false;
+
+   // Multi-tier Fibonacci trailing stop levels:
+   // Tier 5: Fib 2.000 reached -> lock Fib 1.618
+   // Tier 4: Fib 1.618 reached -> lock Fib 1.000
+   // Tier 3: Fib 1.000 reached -> lock Fib 0.382
+   // Tier 2: Fib 0.618 reached -> lock Fib 0.000 (P0)
+   // Tier 1: Fib 0.382 reached -> lock Break-Even (entry + offset)
+   double desired_sl = 0.0;
+   string tier_desc = "";
+
+   if (dir == SIGNAL_BUY)
+   {
+      double p_bid = tick.bid;
+      if (p_bid >= m_setup.P0 + 2.000 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 1.618 * m_setup.range, -1);
+         tier_desc = "Fib 2.00 -> lock 1.618";
+      }
+      else if (p_bid >= m_setup.P0 + 1.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 1.000 * m_setup.range, -1);
+         tier_desc = "Fib 1.618 -> lock 1.000";
+      }
+      else if (p_bid >= m_setup.P0 + 1.272 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 + 0.618 * m_setup.range, -1);
+         tier_desc = "Fib 1.272 -> lock 0.618";
+      }
+      else if (p_bid >= m_setup.P0 + 0.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(entry + InpBEOffsetTicks * tick_size, -1);
+         tier_desc = "Fib 0.618 -> lock BE";
+      }
+   }
+   else
+   {
+      double p_ask = tick.ask;
+      if (p_ask <= m_setup.P0 - 2.000 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 1.618 * m_setup.range, 1);
+         tier_desc = "Fib 2.00 -> lock 1.618";
+      }
+      else if (p_ask <= m_setup.P0 - 1.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 1.000 * m_setup.range, 1);
+         tier_desc = "Fib 1.618 -> lock 1.000";
+      }
+      else if (p_ask <= m_setup.P0 - 1.272 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(m_setup.P0 - 0.618 * m_setup.range, 1);
+         tier_desc = "Fib 1.272 -> lock 0.618";
+      }
+      else if (p_ask <= m_setup.P0 - 0.618 * m_setup.range)
+      {
+         desired_sl = NormalizePriceDirectional(entry - InpBEOffsetTicks * tick_size, 1);
+         tier_desc = "Fib 0.618 -> lock BE";
+      }
+   }
+
+   if (desired_sl <= 0.0)
+      return true;
+
+   double cost_floor_sl = 0.0;
+   if (!CalculateCostAwareBreakEvenStop(dir, entry, volume, cost_floor_sl))
+      return false;
+   if (dir == SIGNAL_BUY)
+      desired_sl = MathMax(desired_sl, cost_floor_sl);
+   else
+      desired_sl = MathMin(desired_sl, cost_floor_sl);
+   desired_sl = NormalizePriceDirectional(desired_sl,
+                                          dir == SIGNAL_BUY ? -1 : 1);
+
+   double tolerance = 0.5 * tick_size;
+
+   // Idempotence and monotonicity: never make an existing stop less protective.
+   if ((dir == SIGNAL_BUY && current_sl >= desired_sl - tolerance) ||
+       (dir == SIGNAL_SELL && current_sl <= desired_sl + tolerance))
+      return true;
+
+   long stops_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   long freeze_points = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+   double min_distance = (double)MathMax(stops_points, freeze_points) * point;
+   if ((dir == SIGNAL_BUY && tick.bid - desired_sl < min_distance) ||
+       (dir == SIGNAL_SELL && desired_sl - tick.ask < min_distance))
+      return true;
+
+   m_last_break_even_attempt = now;
+   bool modified = m_safety_trade.PositionModify(m_setup.position_ticket, desired_sl, current_tp);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (modified && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_NO_CHANGES))
+   {
+      m_sync_required = true;
+      m_last_status = "trailing-stop active";
+      PrintFormat("MANAGEMENT: [RSIFibEA] Position #%llu SL trailed to %.5f (%s).",
+                  m_setup.position_ticket, desired_sl, tier_desc);
+      return true;
+   }
+
+   m_last_status = "trailing-stop retry pending";
+   PrintFormat("WARNING: [RSIFibEA] Trailing stop modify failed for #%llu. Retcode: %u (%s).",
+               m_setup.position_ticket, retcode, m_safety_trade.ResultRetcodeDescription());
+   return false;
+}
+
+bool DeleteResidualOrder(ulong ticket)
+{
+   if (!IsStrictDemoContext())
+   {
+      EnterFault("Strict demo/tester guard blocked residual-order deletion");
+      return false;
+   }
+
+   if (ticket == 0 || !OrderSelect(ticket))
+      return true;
+
+   if (m_last_cancel_attempt != 0 && TimeCurrent() - m_last_cancel_attempt < 1)
+      return false;
+   m_last_cancel_attempt = TimeCurrent();
+
+   bool deleted = m_trade.OrderDelete(ticket);
+   uint retcode = m_trade.ResultRetcode();
+   if (deleted && retcode == TRADE_RETCODE_DONE)
+   {
+      m_sync_required = true;
+      PrintFormat("WARNING: [RSIFibEA] Deleted residual pending volume #%llu after position fill.", ticket);
+      return true;
+   }
+
+   PrintFormat("ERROR: [RSIFibEA] Residual pending order #%llu could not be deleted. Retcode: %u (%s).",
+               ticket, retcode, m_trade.ResultRetcodeDescription());
+   return false;
+}
+
+void EnterFault(const string reason)
+{
+   if (m_state != STATE_FAULT || m_fault_reason != reason)
+      PrintFormat("CRITICAL: [RSIFibEA] FAULT: %s", reason);
+
+   m_fault_reason = reason;
+   m_last_status = reason;
+   m_state = STATE_FAULT;
+}
+
+void CaptureBrokerSnapshot(BrokerSnapshot &snapshot)
+{
+   snapshot.Reset();
+
+   int positions_total = PositionsTotal();
+   for (int i = 0; i < positions_total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+
+      snapshot.symbol_positions++;
+      if (PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+         continue;
+
+      snapshot.managed_positions++;
+      if (snapshot.position_ticket == 0)
+         snapshot.position_ticket = ticket;
+   }
+
+   int orders_total = OrdersTotal();
+   for (int i = 0; i < orders_total; i++)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if (ticket == 0 || OrderGetString(ORDER_SYMBOL) != _Symbol)
+         continue;
+
+      snapshot.symbol_orders++;
+      if (OrderGetInteger(ORDER_MAGIC) != (long)InpMagicNumber)
+         continue;
+
+      snapshot.managed_orders++;
+      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if (type == ORDER_TYPE_BUY_LIMIT || type == ORDER_TYPE_SELL_LIMIT)
+      {
+         snapshot.managed_limits++;
+         if (snapshot.limit_ticket == 0)
+            snapshot.limit_ticket = ticket;
+      }
+      else
+         snapshot.managed_unsupported++;
+   }
+}
+
+ENUM_PROTECTION_STATUS ValidatePositionProtection(const ulong ticket)
+{
+   if (ticket == 0 || !PositionSelectByTicket(ticket))
+      return PROTECTION_NOT_FOUND;
+   if (PositionGetString(POSITION_SYMBOL) != _Symbol ||
+       PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+      return PROTECTION_NOT_FOUND;
+
+   double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+   double stop = PositionGetDouble(POSITION_SL);
+   double target = PositionGetDouble(POSITION_TP);
+   if (entry <= 0.0 || stop <= 0.0 || target <= 0.0 ||
+       !MathIsValidNumber(entry) || !MathIsValidNumber(stop) || !MathIsValidNumber(target))
+      return PROTECTION_INVALID;
+
+   ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   if (type == POSITION_TYPE_BUY && (target <= entry || stop >= target))
+      return PROTECTION_INVALID;
+   if (type == POSITION_TYPE_SELL && (target >= entry || stop <= target))
+      return PROTECTION_INVALID;
+
+   return PROTECTION_OK;
+}
+
+void ServiceUnprotectedPosition(const ulong active_pos)
+{
+   m_protection_status = "INVALID";
+   EnterFault(StringFormat("Position #%llu missing/invalid SL or TP", active_pos));
+   if (!InpCloseUnprotectedPosition)
+      return;
+
+   if (!IsStrictDemoContext())
+   {
+      Print("CRITICAL: [RSIFibEA] Strict demo/tester guard blocked emergency position mutation.");
+      return;
+   }
+
+   if (m_last_emergency_close_attempt != 0 && TimeCurrent() - m_last_emergency_close_attempt < 10)
+      return;
+   m_last_emergency_close_attempt = TimeCurrent();
+
+   bool closed = m_safety_trade.PositionClose(active_pos);
+   uint retcode = m_safety_trade.ResultRetcode();
+   if (closed && (retcode == TRADE_RETCODE_DONE || retcode == TRADE_RETCODE_DONE_PARTIAL))
+   {
+      m_sync_required = true;
+      PrintFormat("SAFETY: [RSIFibEA] Emergency close sent for unprotected position #%llu.", active_pos);
+   }
+   else
+      PrintFormat("CRITICAL: [RSIFibEA] Emergency close failed for #%llu. Retcode: %u (%s).",
+                  active_pos, retcode, m_safety_trade.ResultRetcodeDescription());
+}
+
+void MaybeSyncState(const bool force)
+{
+   ulong now_ms = GetTickCount64();
+   bool watchdog_due = !MQLInfoInteger(MQL_TESTER) &&
+                       (m_last_broker_scan_ms == 0 ||
+                        now_ms - m_last_broker_scan_ms >= (ulong)InpStateWatchdogMs);
+   if (force || m_sync_required || watchdog_due)
+      SyncState();
+}
+
+bool PreflightManagedPositionProtection()
+{
+   int positions_total = PositionsTotal();
+   for (int i = 0; i < positions_total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (ticket == 0 || PositionGetString(POSITION_SYMBOL) != _Symbol ||
+          PositionGetInteger(POSITION_MAGIC) != (long)InpMagicNumber)
+         continue;
+
+      ENUM_PROTECTION_STATUS protection = ValidatePositionProtection(ticket);
+      if (protection == PROTECTION_NOT_FOUND)
+      {
+         m_sync_required = true;
+         return false;
+      }
+      if (protection == PROTECTION_INVALID)
+      {
+         ServiceUnprotectedPosition(ticket);
+         return false;
+      }
+   }
+   return true;
+}
+
+void SyncState()
+{
+   BrokerSnapshot snapshot;
+   CaptureBrokerSnapshot(snapshot);
+   m_sync_required = false;
+   m_last_broker_scan_ms = GetTickCount64();
+
+   // Protection has priority even when the overall snapshot is ambiguous.
+   if (!PreflightManagedPositionProtection())
+      return;
+
+   if (snapshot.managed_positions > 1 || snapshot.managed_orders > 1 ||
+       snapshot.managed_unsupported > 0 ||
+       snapshot.managed_limits != snapshot.managed_orders)
+   {
+      EnterFault(StringFormat("Ambiguous snapshot: positions=%d orders=%d unsupported=%d",
+                              snapshot.managed_positions, snapshot.managed_orders,
+                              snapshot.managed_unsupported));
+      return;
+   }
+
+   if ((snapshot.managed_positions > 0 || snapshot.managed_orders > 0) &&
+       (snapshot.symbol_positions > snapshot.managed_positions ||
+        snapshot.symbol_orders > snapshot.managed_orders))
+   {
+      EnterFault("Foreign exposure mixed with managed exposure on this symbol");
+      return;
+   }
+
+   if (snapshot.managed_positions == 1)
+   {
+      m_empty_broker_confirmations = 0;
+      ENUM_PROTECTION_STATUS protection = ValidatePositionProtection(snapshot.position_ticket);
+      if (protection == PROTECTION_NOT_FOUND)
+      {
+         m_sync_required = true;
+         return;
+      }
+      if (protection == PROTECTION_INVALID)
+      {
+         ServiceUnprotectedPosition(snapshot.position_ticket);
+         return;
+      }
+      m_protection_status = "OK";
+
+      if (!PositionSelectByTicket(snapshot.position_ticket))
+      {
+         m_sync_required = true;
+         return;
+      }
+
+      bool position_changed = (m_setup.position_ticket != snapshot.position_ticket ||
+                               m_setup.dir == SIGNAL_NONE);
+      ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      ENUM_SIGNAL_DIR dir = (pos_type == POSITION_TYPE_BUY) ? SIGNAL_BUY : SIGNAL_SELL;
+      double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+      double stop = PositionGetDouble(POSITION_SL);
+      double target = PositionGetDouble(POSITION_TP);
+      datetime setup_time = (datetime)PositionGetInteger(POSITION_TIME);
+      long position_identifier = PositionGetInteger(POSITION_IDENTIFIER);
+      ulong known_pending = m_setup.pending_ticket;
+
+      bool has_live_geometry = (m_setup.dir == dir && m_setup.range > 0.0 &&
+                                m_setup.P0 > 0.0 && m_setup.stop_price > 0.0 &&
+                                m_setup.target_price > 0.0);
+      if (has_live_geometry)
+      {
+         double tolerance = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE),
+                                    SymbolInfoDouble(_Symbol, SYMBOL_POINT)) * 2.0;
+         bool target_matches = (tolerance > 0.0 &&
+                                MathAbs(target - m_setup.target_price) <= tolerance);
+         bool stop_protective = (dir == SIGNAL_BUY)
+                                ? (stop >= m_setup.stop_price - tolerance && stop < target)
+                                : (stop <= m_setup.stop_price + tolerance && stop > target);
+         if (!stop_protective)
+         {
+            ServiceUnprotectedPosition(snapshot.position_ticket);
+            return;
+         }
+         if (!target_matches)
+         {
+            EnterFault(StringFormat("Position #%llu protection differs from original setup",
+                                    snapshot.position_ticket));
+            return;
+         }
+         // Preserve original P0/range/SL while using the actual fill for break-even.
+         m_setup.entry_price = entry;
+         m_setup.target_price = target;
+         m_setup.position_ticket = snapshot.position_ticket;
+      }
+      else
+      {
+         double geometry_entry = entry;
+         double historical_entry = 0.0;
+         double historical_stop = 0.0;
+         double historical_target = 0.0;
+         bool has_history = FindOriginalLimitGeometry(position_identifier, setup_time,
+                                                      historical_entry, historical_stop,
+                                                      historical_target);
+         if (has_history)
+         {
+            geometry_entry = historical_entry;
+            double history_tolerance = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE),
+                                               SymbolInfoDouble(_Symbol, SYMBOL_POINT)) * 2.0;
+            bool stop_widened = (dir == SIGNAL_BUY)
+                                ? (stop < historical_stop - history_tolerance)
+                                : (stop > historical_stop + history_tolerance);
+            if (stop_widened)
+            {
+               ServiceUnprotectedPosition(snapshot.position_ticket);
+               return;
+            }
+            if (history_tolerance <= 0.0 ||
+                MathAbs(target - historical_target) > history_tolerance)
+            {
+               EnterFault(StringFormat("Position #%llu TP differs from historical setup",
+                                       snapshot.position_ticket));
+               return;
+            }
+         }
+         double immutable_stop = has_history ? historical_stop : 0.0;
+         if (!RestoreSetupGeometry(dir, geometry_entry, stop, target,
+                                   setup_time, immutable_stop))
+         {
+            // With no trustworthy geometry we cannot prove that the live stop
+            // still respects the originally sized risk. Treat the position as
+            // unprotected so the configured emergency-close policy applies.
+            PrintFormat("CRITICAL: [RSIFibEA] Position #%llu geometry cannot be restored safely.",
+                        snapshot.position_ticket);
+            ServiceUnprotectedPosition(snapshot.position_ticket);
+            return;
+         }
+         // The historical limit reconstructs P0/range; BE uses the actual fill.
+         m_setup.entry_price = entry;
+      }
+      m_setup.position_ticket = snapshot.position_ticket;
+
+      if (snapshot.managed_orders == 1)
+      {
+         if (known_pending == 0 || snapshot.limit_ticket != known_pending)
+         {
+            PrintFormat("WARNING: [RSIFibEA] Adopting residual order #%llu beside active position #%llu for safe deletion.",
+                        snapshot.limit_ticket, snapshot.position_ticket);
+         }
+         m_setup.pending_ticket = snapshot.limit_ticket;
+         m_residual_order_ticket = snapshot.limit_ticket;
+         if (DeleteResidualOrder(snapshot.limit_ticket))
+            m_sync_required = true;
+      }
+      else
+      {
+         m_setup.pending_ticket = 0;
+         m_residual_order_ticket = 0;
+      }
+
+      m_fault_reason = "";
+      m_last_status = "position synchronized";
+      m_state = STATE_IN_POSITION;
+      if (position_changed)
+         DrawSetupObjects();
+      return;
+   }
+
+   if (snapshot.managed_orders == 1)
+   {
+      m_empty_broker_confirmations = 0;
+      if (!OrderSelect(snapshot.limit_ticket))
+      {
+         m_sync_required = true;
+         return;
+      }
+
+      bool order_changed = (m_setup.pending_ticket != snapshot.limit_ticket ||
+                            m_setup.dir == SIGNAL_NONE || m_setup.pending_order_time == 0);
+      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      ENUM_SIGNAL_DIR dir = (type == ORDER_TYPE_BUY_LIMIT) ? SIGNAL_BUY : SIGNAL_SELL;
+      datetime setup_time = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
+      double entry = OrderGetDouble(ORDER_PRICE_OPEN);
+      double stop = OrderGetDouble(ORDER_SL);
+      double target = OrderGetDouble(ORDER_TP);
+
+      if (!RestoreSetupGeometry(dir, entry, stop, target, setup_time, stop))
+      {
+         EnterFault(StringFormat("Pending order #%llu geometry cannot be restored",
+                                 snapshot.limit_ticket));
+         return;
+      }
+      m_setup.pending_ticket = snapshot.limit_ticket;
+      m_setup.position_ticket = 0;
+      m_fault_reason = "";
+      m_protection_status = "PENDING";
+      m_last_status = "pending order synchronized";
+      m_state = STATE_PENDING_ORDER;
+      if (order_changed)
+      {
+         PrintFormat("INFO: [RSIFibEA] Restored pending order #%llu.", snapshot.limit_ticket);
+         DrawSetupObjects();
+      }
+      return;
+   }
+
+   if (snapshot.symbol_positions > 0 || snapshot.symbol_orders > 0)
+   {
+      if (m_state == STATE_PENDING_ORDER || m_state == STATE_IN_POSITION || m_state == STATE_FAULT)
+         EnterFault("Only foreign exposure remains on the managed symbol");
+      return;
+   }
+
+   if (m_state == STATE_PENDING_ORDER || m_state == STATE_IN_POSITION || m_state == STATE_FAULT)
+   {
+      m_empty_broker_confirmations++;
+      if (m_empty_broker_confirmations < 2)
+      {
+         m_sync_required = true;
+         return;
+      }
+      ResetSetupToIdle();
+      m_last_status = "flat";
+   }
+   else
+      m_empty_broker_confirmations = 0;
+}
+
+//+------------------------------------------------------------------+
+//| CHART VISUALIZATION HELPERS                                      |
+//+------------------------------------------------------------------+
+
+void UpdateDashboard()
+{
+   if (!InpShowDashboard || (MQLInfoInteger(MQL_TESTER) && !InpDashboardInTester))
+      return;
+
+   ulong now_ms = GetTickCount64();
+   if (m_last_dashboard_ms != 0 && now_ms - m_last_dashboard_ms < 1000)
+      return;
+   m_last_dashboard_ms = now_ms;
+
+   MqlTick tick;
+   double spread_points = 0.0;
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   if (point > 0.0 && SymbolInfoTick(_Symbol, tick) && tick.ask >= tick.bid)
+      spread_points = (tick.ask - tick.bid) / point;
+
+   string direction = (m_setup.dir == SIGNAL_BUY) ? "BUY" :
+                      (m_setup.dir == SIGNAL_SELL) ? "SELL" : "NONE";
+   string filters = StringFormat("DIV:%s  NEWS:%s  BOS:%s  MTF:%s  VOL:%s  P-TP:%s",
+                                 InpUseRSIDivergence ? "ON" : "OFF",
+                                 EnumToString(InpNewsMode),
+                                 InpUseMarketStructure ? "ON" : "OFF",
+                                 InpUseMTFTrendFilter ? "ON" : "OFF",
+                                 InpUseVolatilityRegime ? "ON" : "OFF",
+                                 InpUsePartialTP ? "ON" : "OFF");
+   string status = (m_state == STATE_FAULT && m_fault_reason != "")
+                   ? m_fault_reason : m_last_status;
+
+   Comment(StringFormat("RSI Fib EA v4.40 Research | DEMO GUARD: %s\n"
+                        "State: %s | Direction: %s | Protection: %s\n"
+                        "Spread: %.1f pts | Order: %llu | Position: %llu\n"
+                        "P0 %.5f | P1 %.5f | Entry %.5f | SL %.5f | TP %.5f | TP1 %.5f\n"
+                        "Filters: %s\nStatus: %s",
+                        InpDemoOnly ? "ON" : "OFF", EnumToString(m_state), direction,
+                        m_protection_status, spread_points, m_setup.pending_ticket,
+                        m_setup.position_ticket, m_setup.P0, m_setup.P1,
+                        m_setup.entry_price, m_setup.stop_price, m_setup.target_price,
+                        m_setup.partial_tp_price, filters, status));
+}
+
+void DrawSetupObjects()
+{
+   if (!InpDrawChartObjects) return;
+
+   RemoveChartObjects();
+
+   color col_p0      = clrGray;
+   color col_p1      = clrDarkGray;
+   color col_entry   = clrBlue;
+   color col_stop    = clrRed;
+   color col_tp1     = clrOrange;
+   color col_target  = clrGreen;
+   color col_vtarget = clrDarkGreen;
+
+   CreateHLine(m_obj_prefix + "P0", m_setup.P0, col_p0, STYLE_DOT, 1, "P0 (0.00)");
+   CreateHLine(m_obj_prefix + "P1", m_setup.P1, col_p1, STYLE_DOT, 1, "P1 (1.00)");
+   CreateHLine(m_obj_prefix + "Entry", m_setup.entry_price, col_entry, STYLE_SOLID, 2, StringFormat("Entry (%.2f)", InpEntryRatio));
+   CreateHLine(m_obj_prefix + "Stop", m_setup.stop_price, col_stop, STYLE_SOLID, 2, StringFormat("Stop (%.2f)", InpStopRatio));
+   if (InpUsePartialTP && m_setup.partial_tp_price > 0.0)
+      CreateHLine(m_obj_prefix + "TP1", m_setup.partial_tp_price, col_tp1, STYLE_DASH, 1, StringFormat("TP1 Partial (%.1fR)", InpPartialTPRiskMultiple));
+   CreateHLine(m_obj_prefix + "Target", m_setup.target_price, col_target, STYLE_SOLID, 2, StringFormat("Target (%.2f)", InpTargetRatio));
+   CreateHLine(m_obj_prefix + "VisualTarget", m_setup.visual_target_price, col_vtarget, STYLE_DASH, 1, StringFormat("Visual Target (%.2f)", InpVisualTargetRatio));
+}
+
+void CreateHLine(string name, double price, color col, ENUM_LINE_STYLE style, int width, string text)
+{
+   if (ObjectFind(0, name) >= 0)
+      ObjectDelete(0, name);
+
+   if (ObjectCreate(0, name, OBJ_HLINE, 0, 0, price))
+   {
+      ObjectSetInteger(0, name, OBJPROP_COLOR, col);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+   }
+}
+
+void RemoveChartObjects()
+{
+   string suffixes[7] = {"P0", "P1", "Entry", "Stop", "TP1", "Target", "VisualTarget"};
+   for (int i = 0; i < 7; i++)
+      ObjectDelete(0, m_obj_prefix + suffixes[i]);
+}
+//+------------------------------------------------------------------+

@@ -1,6 +1,7 @@
 ; RSIFibRetracementEA Adaptive Geometry Preset
 ; SL/TP depend on chart volatility. Demo/tester only.
 
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=20260806
 InpRiskPercent=0.10
@@ -58,6 +59,9 @@ InpFridayCloseHour=20
 InpUseMTFTrendFilter=true
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=true
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.0

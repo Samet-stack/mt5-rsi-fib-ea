@@ -177,6 +177,8 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         ):
             self.assertIn(guard, body[:new_bar_index])
         self.assertIn("CancelPendingOrder()", body[:new_bar_index])
+        self.assertIn("CheckMTFTrendFilter(m_setup.dir)", body[:new_bar_index])
+        self.assertIn("FUNNEL_PENDING_CANCEL_MTF", body[:new_bar_index])
 
     def test_contract_lifecycle_rejects_near_expiry_futures(self):
         body = function_body("CheckContractLifecycle")
@@ -359,13 +361,46 @@ class TestMQL5SafetyContracts(unittest.TestCase):
     def test_filters_use_only_closed_indicator_values_and_fail_closed(self):
         mtf_body = function_body("CheckMTFTrendFilter")
         vol_body = function_body("CheckVolatilityRegimeFilter")
-        self.assertIn("iClose(_Symbol, InpMTFTimeframe, 1)", mtf_body)
+        self.assertIn("iClose(_Symbol, eval_tf, 1)", mtf_body)
         self.assertIn("CopyBuffer(m_mtf_ema_handle, 0, 1, 1", mtf_body)
         self.assertIn("CopyBuffer(m_mtf_rsi_handle, 0, 1, 1", mtf_body)
         self.assertIn("CopyBuffer(m_vol_fast_atr_handle, 0, 1, 1", vol_body)
         self.assertIn("CopyBuffer(m_vol_slow_atr_handle, 0, 1, 1", vol_body)
         self.assertIn("EMPTY_VALUE", mtf_body)
         self.assertIn("EMPTY_VALUE", vol_body)
+
+    def test_direction_policy_is_auditable_and_mtf_is_rechecked_before_fill(self):
+        idle_body = function_body("ProcessStateIdle")
+        placement_body = function_body("ProcessStateWaitingForAnchor")
+        execute_body = function_body("ExecutePendingOrder")
+        direction_body = function_body("IsSignalDirectionEnabled")
+        validation_body = function_body("ValidateInputs")
+        self.assertLess(idle_body.index("FUNNEL_RSI_CROSS"),
+                        idle_body.index("FUNNEL_REJECT_DIRECTION_POLICY"))
+        self.assertIn("InpTradeDirection", direction_body)
+        self.assertIn("EA_DIR_LONG_ONLY", direction_body)
+        self.assertIn("EA_DIR_SHORT_ONLY", direction_body)
+        self.assertIn("InpTradeDirection", validation_body)
+        self.assertIn("CheckMTFTrendFilter(m_setup.dir)", placement_body)
+        self.assertIn("CheckMTFTrendFilter(m_setup.dir)", execute_body)
+        self.assertIn("IsSignalDirectionEnabled(m_setup.dir)", placement_body)
+        self.assertIn("IsSignalDirectionEnabled(m_setup.dir)", execute_body)
+        self.assertIn(
+            "IsSignalDirectionEnabled(m_setup.dir)",
+            function_body("ProcessStatePendingOrder"),
+        )
+
+    def test_mtf_slope_uses_closed_higher_timeframe_ema_and_fails_closed(self):
+        body = function_body("CheckMTFTrendFilter")
+        validation_body = function_body("ValidateInputs")
+        self.assertIn("InpMTFRequireEMASlope", body)
+        self.assertIn("1 + InpMTFSlopeLookbackBars", body)
+        self.assertIn("CopyBuffer(m_mtf_ema_handle, 0, past_shift, 1", body)
+        self.assertIn("(htf_ema - past_ema) / past_ema * 100.0", body)
+        self.assertIn("slope_pct <= InpMTFMinSlopePct", body)
+        self.assertIn("slope_pct >= -InpMTFMinSlopePct", body)
+        self.assertIn("InpMTFSlopeLookbackBars", validation_body)
+        self.assertIn("InpMTFMinSlopePct", validation_body)
 
     def test_news_filter_routes_explicit_sources_and_fails_closed(self):
         init_body = function_body("InitNewsSource")
@@ -405,6 +440,7 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         )
         for reason in (
             "FUNNEL_RSI_CROSS",
+            "FUNNEL_REJECT_DIRECTION_POLICY",
             "FUNNEL_REJECT_RSI_QUALITY",
             "FUNNEL_REJECT_RSI_DIVERGENCE",
             "FUNNEL_REJECT_MARKET_STRUCTURE",
@@ -423,6 +459,10 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         self.assertIn("FUNNEL_SUMMARY_END", summary_body)
         self.assertIn("FUNNEL_REJECT_PORTFOLIO", name_body)
         self.assertIn('return "REJECT_PORTFOLIO"', name_body)
+        self.assertIn("FUNNEL_REJECT_DIRECTION_POLICY", name_body)
+        self.assertIn('return "REJECT_DIRECTION_POLICY"', name_body)
+        self.assertIn("FUNNEL_PENDING_CANCEL_MTF", name_body)
+        self.assertIn('return "PENDING_CANCEL_MTF"', name_body)
         self.assertIn("EmitFunnelSummary()", function_body("OnDeinit"))
 
     def test_partial_tp_is_risk_based_split_safe_and_retcode_checked(self):

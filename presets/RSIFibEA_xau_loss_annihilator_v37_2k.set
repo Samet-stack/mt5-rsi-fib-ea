@@ -4,6 +4,7 @@
 ; Window 10:00-16:00 eliminates London-open whipsaws and US-close fakeouts
 ; ====================================================================
 
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=20260806
 InpRiskPercent=1.25
@@ -61,6 +62,9 @@ InpFridayCloseHour=20
 InpUseMTFTrendFilter=false
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=100
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.0

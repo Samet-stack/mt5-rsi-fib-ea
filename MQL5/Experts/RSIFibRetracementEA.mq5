@@ -7,7 +7,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026"
 #property link      ""
-#property version   "4.40"
+#property version   "4.50"
 #property description "RSI/Fibonacci research EA for MT5 (strict demo/tester only)"
 #property strict
 
@@ -51,6 +51,7 @@ enum ENUM_NEWS_SOURCE_MODE
 enum ENUM_FUNNEL_EVENT
 {
    FUNNEL_RSI_CROSS = 0,
+   FUNNEL_REJECT_DIRECTION_POLICY,
    FUNNEL_REJECT_RSI_QUALITY,
    FUNNEL_REJECT_RSI_DIVERGENCE,
    FUNNEL_REJECT_MARKET_STRUCTURE,
@@ -85,6 +86,7 @@ enum ENUM_FUNNEL_EVENT
    FUNNEL_ORDER_PLACED,
    FUNNEL_ORDER_SEND_FAILED,
    FUNNEL_PENDING_CANCEL_GUARD,
+   FUNNEL_PENDING_CANCEL_MTF,
    FUNNEL_PENDING_CANCEL_PRICE,
    FUNNEL_PENDING_CANCEL_AGE,
    FUNNEL_PENDING_CANCEL_OPPOSITE,
@@ -190,6 +192,9 @@ input group "=== Multi-Timeframe Trend Filter ==="
 input bool               InpUseMTFTrendFilter   = false;       // Enable MTF Trend Filter
 input ENUM_TIMEFRAMES    InpMTFTimeframe        = PERIOD_H1;   // HTF Trend Timeframe
 input int                InpMTFEMAPeriod        = 200;         // HTF EMA Period
+input bool               InpMTFRequireEMASlope  = false;       // Require EMA slope in signal direction
+input int                InpMTFSlopeLookbackBars= 8;           // Closed HTF bars used for EMA slope
+input double             InpMTFMinSlopePct      = 0.0;         // Min absolute EMA change over lookback (%)
 input bool               InpMTFUseRSIConfirm    = false;       // Enable HTF RSI Confirmation
 input int                InpMTFRSIPeriod        = 14;          // HTF RSI Period
 input double             InpMTFRSIMidline       = 50.0;        // HTF RSI Midline Level
@@ -391,6 +396,7 @@ string FunnelEventName(const ENUM_FUNNEL_EVENT event)
    switch (event)
    {
       case FUNNEL_RSI_CROSS: return "RSI_CROSS";
+      case FUNNEL_REJECT_DIRECTION_POLICY: return "REJECT_DIRECTION_POLICY";
       case FUNNEL_REJECT_RSI_QUALITY: return "REJECT_RSI_QUALITY";
       case FUNNEL_REJECT_RSI_DIVERGENCE: return "REJECT_RSI_DIVERGENCE";
       case FUNNEL_REJECT_MARKET_STRUCTURE: return "REJECT_MARKET_STRUCTURE";
@@ -425,6 +431,7 @@ string FunnelEventName(const ENUM_FUNNEL_EVENT event)
       case FUNNEL_ORDER_PLACED: return "ORDER_PLACED";
       case FUNNEL_ORDER_SEND_FAILED: return "ORDER_SEND_FAILED";
       case FUNNEL_PENDING_CANCEL_GUARD: return "PENDING_CANCEL_GUARD";
+      case FUNNEL_PENDING_CANCEL_MTF: return "PENDING_CANCEL_MTF";
       case FUNNEL_PENDING_CANCEL_PRICE: return "PENDING_CANCEL_PRICE";
       case FUNNEL_PENDING_CANCEL_AGE: return "PENDING_CANCEL_AGE";
       case FUNNEL_PENDING_CANCEL_OPPOSITE: return "PENDING_CANCEL_OPPOSITE";
@@ -766,14 +773,16 @@ void ProcessStateIdle()
    bool buy_signal  = (rsi_2 <= InpOversoldLevel && rsi_1 > InpOversoldLevel);
    bool sell_signal = (rsi_2 >= InpOverboughtLevel && rsi_1 < InpOverboughtLevel);
 
-   if (InpTradeDirection == EA_DIR_LONG_ONLY)  sell_signal = false;
-   if (InpTradeDirection == EA_DIR_SHORT_ONLY) buy_signal = false;
-
    if (!buy_signal && !sell_signal)
       return;
 
    ENUM_SIGNAL_DIR candidate_dir = buy_signal ? SIGNAL_BUY : SIGNAL_SELL;
    RecordFunnel(FUNNEL_RSI_CROSS);
+
+   // Measure direction-policy rejections instead of erasing the raw RSI
+   // signal. This keeps long/short research visible in the funnel.
+   if (!IsSignalDirectionEnabled(candidate_dir))
+   { RecordFunnel(FUNNEL_REJECT_DIRECTION_POLICY); return; }
 
    // Evaluate the funnel sequentially so every signal has one stable,
    // machine-readable first-failure reason.
@@ -979,7 +988,12 @@ void ProcessStateWaitingForAnchor()
       return;
    }
 
-   // Re-verify Risk Guards before ordering
+   // Re-verify the macro thesis and risk guards before ordering. The anchor
+   // may appear several M15 bars after the original RSI cross.
+   if (!IsSignalDirectionEnabled(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_DIRECTION_POLICY); ResetSetupToIdle(); return; }
+   if (!CheckMTFTrendFilter(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_MTF_TREND); ResetSetupToIdle(); return; }
    if (!CheckRiskGuards())
    { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); ResetSetupToIdle(); return; }
    if (!CheckPortfolioLimits())
@@ -1055,6 +1069,23 @@ void ProcessStatePendingOrder(bool is_new_bar)
    {
       RecordFunnel(FUNNEL_PENDING_CANCEL_GUARD);
       Print("INFO: [RSIFibEA] Pending order no longer satisfies risk/spread/session/contract guards. Cancelling.");
+      CancelPendingOrder();
+      return;
+   }
+
+   // Keep the closed-bar H1 trend thesis valid until the broker fills the
+   // pending order. A broker-side fill can still race a cancellation request.
+   if (!IsSignalDirectionEnabled(m_setup.dir))
+   {
+      RecordFunnel(FUNNEL_PENDING_CANCEL_GUARD);
+      Print("INFO: [RSIFibEA] Pending order no longer satisfies the configured direction policy. Cancelling.");
+      CancelPendingOrder();
+      return;
+   }
+   if (!CheckMTFTrendFilter(m_setup.dir))
+   {
+      RecordFunnel(FUNNEL_PENDING_CANCEL_MTF);
+      Print("INFO: [RSIFibEA] Pending order no longer satisfies the closed-bar MTF trend filter. Cancelling.");
       CancelPendingOrder();
       return;
    }
@@ -1671,6 +1702,10 @@ void ExecutePendingOrder(ENUM_ORDER_TYPE order_type, double vol)
       return;
    }
 
+   if (!IsSignalDirectionEnabled(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_DIRECTION_POLICY); ResetSetupToIdle(); return; }
+   if (!CheckMTFTrendFilter(m_setup.dir))
+   { RecordFunnel(FUNNEL_REJECT_MTF_TREND); ResetSetupToIdle(); return; }
    if (!CheckRiskGuards())
    { RecordFunnel(FUNNEL_REJECT_DAILY_RISK); ResetSetupToIdle(); return; }
    if (!CheckPortfolioLimits())
@@ -1912,6 +1947,11 @@ bool ValidateInputs()
       Print("VALIDATION ERROR: InpMagicNumber must be greater than zero.");
       return false;
    }
+   if (InpTradeDirection < EA_DIR_BOTH || InpTradeDirection > EA_DIR_SHORT_ONLY)
+   {
+      Print("VALIDATION ERROR: InpTradeDirection is invalid.");
+      return false;
+   }
    if (InpStateWatchdogMs < 250 || InpStateWatchdogMs > 60000)
    {
       Print("VALIDATION ERROR: InpStateWatchdogMs must be between 250 and 60000 ms.");
@@ -2049,6 +2089,13 @@ bool ValidateInputs()
    if (InpMTFEMAPeriod < 1 || InpMTFEMAPeriod > 100000)
    {
       Print("VALIDATION ERROR: InpMTFEMAPeriod is outside safe bounds.");
+      return false;
+   }
+   if (InpMTFSlopeLookbackBars < 1 || InpMTFSlopeLookbackBars > 10000 ||
+       !MathIsValidNumber(InpMTFMinSlopePct) ||
+       InpMTFMinSlopePct < 0.0 || InpMTFMinSlopePct > 100.0)
+   {
+      Print("VALIDATION ERROR: MTF EMA slope parameters are outside safe bounds.");
       return false;
    }
    ENUM_TIMEFRAMES resolved_signal_tf = (InpSignalTimeframe == PERIOD_CURRENT)
@@ -2220,6 +2267,17 @@ bool IsDirectionAllowed(ENUM_SIGNAL_DIR dir)
       return true;
    if (dir == SIGNAL_SELL && trade_mode == SYMBOL_TRADE_MODE_SHORTONLY)
       return true;
+   return false;
+}
+
+bool IsSignalDirectionEnabled(ENUM_SIGNAL_DIR dir)
+{
+   if (dir == SIGNAL_BUY)
+      return (InpTradeDirection == EA_DIR_BOTH ||
+              InpTradeDirection == EA_DIR_LONG_ONLY);
+   if (dir == SIGNAL_SELL)
+      return (InpTradeDirection == EA_DIR_BOTH ||
+              InpTradeDirection == EA_DIR_SHORT_ONLY);
    return false;
 }
 
@@ -3321,20 +3379,48 @@ bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
    if (!InpUseMTFTrendFilter)
       return true;
 
-   if (m_mtf_ema_handle == INVALID_HANDLE)
+   if ((dir != SIGNAL_BUY && dir != SIGNAL_SELL) ||
+       m_mtf_ema_handle == INVALID_HANDLE)
       return false;
 
-   double htf_close = iClose(_Symbol, InpMTFTimeframe, 1);
+   ENUM_TIMEFRAMES eval_tf = (InpMTFTimeframe == PERIOD_CURRENT)
+                             ? m_timeframe : InpMTFTimeframe;
+   double htf_close = iClose(_Symbol, eval_tf, 1);
    if (htf_close <= 0.0 || !MathIsValidNumber(htf_close))
       return false;
 
-   double ema_buf[1];
-   if (CopyBuffer(m_mtf_ema_handle, 0, 1, 1, ema_buf) != 1)
+   double ema_now_buf[1];
+   if (CopyBuffer(m_mtf_ema_handle, 0, 1, 1, ema_now_buf) != 1)
       return false;
 
-   double htf_ema = ema_buf[0];
+   double htf_ema = ema_now_buf[0];
    if (htf_ema == EMPTY_VALUE || !MathIsValidNumber(htf_ema) || htf_ema <= 0.0)
       return false;
+
+   if ((dir == SIGNAL_BUY && htf_close <= htf_ema) ||
+       (dir == SIGNAL_SELL && htf_close >= htf_ema))
+      return false;
+
+   if (InpMTFRequireEMASlope)
+   {
+      double ema_past_buf[1];
+      int past_shift = 1 + InpMTFSlopeLookbackBars;
+      if (CopyBuffer(m_mtf_ema_handle, 0, past_shift, 1, ema_past_buf) != 1)
+         return false;
+
+      double past_ema = ema_past_buf[0];
+      if (past_ema == EMPTY_VALUE || !MathIsValidNumber(past_ema) || past_ema <= 0.0)
+         return false;
+
+      double slope_pct = (htf_ema - past_ema) / past_ema * 100.0;
+      if (!MathIsValidNumber(slope_pct))
+         return false;
+      // At a zero threshold, a flat EMA is still rejected. This expresses a
+      // directional macro trend without tuning a magnitude to one instrument.
+      if ((dir == SIGNAL_BUY && slope_pct <= InpMTFMinSlopePct) ||
+          (dir == SIGNAL_SELL && slope_pct >= -InpMTFMinSlopePct))
+         return false;
+   }
 
    if (InpMTFUseRSIConfirm)
    {
@@ -3349,32 +3435,8 @@ bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
       if (htf_rsi == EMPTY_VALUE || !MathIsValidNumber(htf_rsi) || htf_rsi < 0.0 || htf_rsi > 100.0)
          return false;
 
-      if (dir == SIGNAL_BUY)
-      {
-         if (htf_close <= htf_ema || htf_rsi <= InpMTFRSIMidline)
-            return false;
-      }
-      else if (dir == SIGNAL_SELL)
-      {
-         if (htf_close >= htf_ema || htf_rsi >= InpMTFRSIMidline)
-            return false;
-      }
-      else
-         return false;
-   }
-   else
-   {
-      if (dir == SIGNAL_BUY)
-      {
-         if (htf_close <= htf_ema)
-            return false;
-      }
-      else if (dir == SIGNAL_SELL)
-      {
-         if (htf_close >= htf_ema)
-            return false;
-      }
-      else
+      if ((dir == SIGNAL_BUY && htf_rsi <= InpMTFRSIMidline) ||
+          (dir == SIGNAL_SELL && htf_rsi >= InpMTFRSIMidline))
          return false;
    }
 
@@ -4777,7 +4839,7 @@ void UpdateDashboard()
    string status = (m_state == STATE_FAULT && m_fault_reason != "")
                    ? m_fault_reason : m_last_status;
 
-   Comment(StringFormat("RSI Fib EA v4.40 Research | DEMO GUARD: %s\n"
+   Comment(StringFormat("RSI Fib EA v4.50 Research | DEMO GUARD: %s\n"
                         "State: %s | Direction: %s | Protection: %s\n"
                         "Spread: %.1f pts | Order: %llu | Position: %llu\n"
                         "P0 %.5f | P1 %.5f | Entry %.5f | SL %.5f | TP %.5f | TP1 %.5f\n"

@@ -29,6 +29,9 @@ param(
     [ValidateRange(30, 3600)]
     [int]$TimeoutSeconds = 900,
 
+    [ValidateRange(0.0, 100.0)]
+    [double]$MinRealTicksPct = 99.0,
+
     [switch]$CloseRunningTerminal
 )
 
@@ -157,6 +160,32 @@ if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf) -or
     throw "MT5 did not create or refresh the expected report: $reportPath"
 }
 
+# Model=4 requests real ticks, but MT5 can silently synthesize history when
+# the broker has no real-tick coverage for the requested window. Reject that
+# report here instead of allowing an attractive but invalid result downstream.
+$reader = New-Object IO.StreamReader($reportPath, $true)
+try {
+    $reportText = $reader.ReadToEnd()
+}
+finally {
+    $reader.Dispose()
+}
+$qualityMatch = [regex]::Match(
+    $reportText,
+    '(?i)([-+]?\d+(?:[\.,]\d+)?)\s*%\s*(?:ticks?[^<]{0,12}|real\s+ticks?)'
+)
+if (-not $qualityMatch.Success) {
+    throw "MT5 report does not expose a parseable real-tick percentage: $reportPath"
+}
+$realTicksText = $qualityMatch.Groups[1].Value.Replace(',', '.')
+$realTicksPct = [double]::Parse(
+    $realTicksText,
+    [Globalization.CultureInfo]::InvariantCulture
+)
+if ($realTicksPct -lt $MinRealTicksPct) {
+    throw "MT5 report real-tick quality is $realTicksPct%, required >= $MinRealTicksPct%: $reportPath"
+}
+
 [pscustomobject]@{
     Symbol = $Symbol
     Period = $Period
@@ -165,6 +194,7 @@ if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf) -or
     Deposit = "$depositText USD"
     Leverage = "1:$Leverage"
     Model = "Every tick based on real ticks"
+    RealTicksPct = $realTicksPct
     Config = $configPath
     Report = $reportPath
     ExitCode = $process.ExitCode

@@ -1,0 +1,56 @@
+{
+  "artifacts": [
+    {
+      "bytes": 183556,
+      "media_type": "text/x-mql5",
+      "path": "inputs/source.mq5",
+      "role": "source",
+      "sha256": "dedcfcca900177276409784fa4263186a97bbcbdcdd25c7ee1eec6a7dae41d37"
+    },
+    {
+      "bytes": 2758,
+      "media_type": "text/plain",
+      "path": "inputs/preset.set",
+      "role": "preset",
+      "sha256": "bbe5079c49268f86fac3272dda1fd37de9096a7858d6c14af6007077e800fb99"
+    },
+    {
+      "bytes": 165314,
+      "media_type": "application/octet-stream",
+      "path": "inputs/expert.ex5",
+      "role": "compiled-binary",
+      "sha256": "a8a32c5d0f8dd5f77b13d5eb1ab46573c5f4fcde7bb8bb416be800b881443a81"
+    },
+    {
+      "bytes": 75780,
+      "media_type": "text/html",
+      "path": "raw/report.htm",
+      "role": "mt5-report",
+      "sha256": "e2ea1921fe2d010b1a4d02c5070f8bf14d8fa0ba61eee18941b2bc46d4e65145"
+    }
+  ],
+  "cost": {
+    "currency": "USD",
+    "round_turn_per_lot": "7",
+    "verified": false
+  },
+  "environment": {
+    "broker": "MetaQuotes Ltd.",
+    "model": "Every tick based on real ticks",
+    "symbol": "XAUUSD",
+    "terminal_build": 6090,
+    "timeframe": "M15"
+  },
+  "parameter_comparison": {
+    "matched": null,
+    "performed": false,
+    "preset_count": 105
+  },
+  "run_id": "25bb06b4-0f1c-47d9-ae84-8e520e546fe3",
+  "schema": "rsifib-mt5-run-archive/v1",
+  "seed": 20260813,
+  "window": {
+    "from": "2025-12-01",
+    "to": "2026-01-01"
+  }
+}

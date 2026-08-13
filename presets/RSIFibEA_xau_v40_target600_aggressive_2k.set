@@ -11,6 +11,7 @@
 ; Position Management
 ; Display & Tester
 
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=108843
 InpRiskPercent=4.00
@@ -68,6 +69,9 @@ InpFridayCloseHour=20
 InpUseMTFTrendFilter=false
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.00

@@ -1,6 +1,7 @@
 ; RSIFibRetracementEA V2 Research Preset
 ; Demo/tester only, fixed M15 signal + H1 trend. Not an optimized or validated configuration.
 
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=20260804
 InpRiskPercent=0.10
@@ -58,6 +59,9 @@ InpFridayCloseHour=20
 InpUseMTFTrendFilter=true
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.0

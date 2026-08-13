@@ -49,6 +49,7 @@ def _windows_path(path: Path) -> str:
     return converted
 
 BASE_TEMPLATE = {
+    "InpTradeDirection": "0",
     "InpDemoOnly": "true",
     "InpMagicNumber": "20260806",
     "InpRiskPercent": "0.10",
@@ -107,6 +108,9 @@ BASE_TEMPLATE = {
     "InpUseMTFTrendFilter": "false",
     "InpMTFTimeframe": "16385",
     "InpMTFEMAPeriod": "200",
+    "InpMTFRequireEMASlope": "false",
+    "InpMTFSlopeLookbackBars": "8",
+    "InpMTFMinSlopePct": "0.0",
     "InpMTFUseRSIConfirm": "false",
     "InpMTFRSIPeriod": "14",
     "InpMTFRSIMidline": "50.0",

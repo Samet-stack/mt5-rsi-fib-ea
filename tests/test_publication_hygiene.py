@@ -59,9 +59,13 @@ class TestPublicationHygiene(unittest.TestCase):
                 with self.subTest(path=path.relative_to(PROJECT_ROOT)):
                     self.assertIsNone(pattern.search(text))
 
-    def test_public_v4_artifacts_do_not_embed_local_paths_or_account_identity(self):
-        runs = PROJECT_ROOT / "artifacts" / "experiments_v4" / "runs"
-        self.assertTrue(runs.is_dir())
+    def test_public_archives_do_not_embed_local_paths_or_account_identity(self):
+        run_roots = [
+            PROJECT_ROOT / "artifacts" / "experiments_v4" / "runs",
+            PROJECT_ROOT / "artifacts" / "experiments_v4_5" / "runs",
+        ]
+        for runs in run_roots:
+            self.assertTrue(runs.is_dir())
         forbidden = (
             "/home/" + "9lx7",
             "/mnt/c/Users/" + "samet",
@@ -70,21 +74,22 @@ class TestPublicationHygiene(unittest.TestCase):
             "ACCOUNT_LOGIN",
             "ACCOUNT_NAME",
         )
-        for path in runs.rglob("*"):
-            if not path.is_file() or path.suffix.lower() == ".ex5":
-                continue
-            content = path.read_bytes()
-            text = None
-            for encoding in ("utf-8-sig", "utf-16", "cp1252"):
-                try:
-                    text = content.decode(encoding)
-                    break
-                except UnicodeError:
+        for runs in run_roots:
+            for path in runs.rglob("*"):
+                if not path.is_file() or path.suffix.lower() == ".ex5":
                     continue
-            self.assertIsNotNone(text, path)
-            for token in forbidden:
-                with self.subTest(path=path.relative_to(PROJECT_ROOT), token=token):
-                    self.assertNotIn(token, text)
+                content = path.read_bytes()
+                text = None
+                for encoding in ("utf-8-sig", "utf-16", "cp1252"):
+                    try:
+                        text = content.decode(encoding)
+                        break
+                    except UnicodeError:
+                        continue
+                self.assertIsNotNone(text, path)
+                for token in forbidden:
+                    with self.subTest(path=path.relative_to(PROJECT_ROOT), token=token):
+                        self.assertNotIn(token, text)
 
     def test_public_governance_and_validation_disclaimer_exist(self):
         for relative in (

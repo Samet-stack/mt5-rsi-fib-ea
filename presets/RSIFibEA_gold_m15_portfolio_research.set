@@ -1,7 +1,7 @@
-; Gold M15 portfolio research profile (hypothesis, not validated).
+; Gold M15 symmetric H1 EMA200 trend alignment and 3R TP candidate.
 ; Demo/tester only. The broker cost gate is intentionally closed.
 
-InpTradeDirection=1
+InpTradeDirection=0
 InpDemoOnly=true
 InpMagicNumber=20261101
 InpRiskPercent=0.25
@@ -17,11 +17,11 @@ InpMaxSpreadPoints=0
 InpMaxSpreadRiskPct=30.0
 InpCloseUnprotectedPosition=true
 InpStateWatchdogMs=1000
-InpCostModelVerified=true
-InpEstimatedRoundTurnCostPerLot=7.0
+InpCostModelVerified=false
+InpEstimatedRoundTurnCostPerLot=0.0
 InpAdverseEntrySlippageTicks=1
 InpAdverseStopSlippageTicks=1
-InpMaxFreeMarginUsagePct=50.0
+InpMaxFreeMarginUsagePct=25.0
 InpMinDaysToContractExpiry=7
 InpUseSessionFilter=false
 InpStartHour=8
@@ -56,9 +56,12 @@ InpFridayFilter=true
 InpFridayMaxHour=15
 InpCloseFridayEOD=true
 InpFridayCloseHour=20
-InpUseMTFTrendFilter=false
+InpUseMTFTrendFilter=true
 InpMTFTimeframe=16385
 InpMTFEMAPeriod=200
+InpMTFRequireEMASlope=false
+InpMTFSlopeLookbackBars=8
+InpMTFMinSlopePct=0.0
 InpMTFUseRSIConfirm=false
 InpMTFRSIPeriod=14
 InpMTFRSIMidline=50.0
@@ -74,12 +77,12 @@ InpMinRangeATR=0.0
 InpMaxRangeATR=0.0
 InpATR_Period=14
 InpEntryRatio=-0.21
-InpStopRatio=-0.29
+InpStopRatio=-0.50
 InpTargetRatio=2.56
 InpVisualTargetRatio=2.64
 InpUseAdaptiveSL=false
 InpMinSLATRMultiple=1.5
-InpUseAdaptiveTP=false
+InpUseAdaptiveTP=true
 InpTPRiskMultiple=3.0
 InpUsePartialTP=false
 InpPartialTPRiskMultiple=2.5
