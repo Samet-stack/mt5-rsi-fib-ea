@@ -1,4 +1,4 @@
-# RSI Fibonacci Retracement EA — recherche V4.50 pour MT5
+# RSI Fibonacci Retracement EA — recherche V4.51 pour MT5
 
 [![Tests Python](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml/badge.svg)](https://github.com/Samet-stack/mt5-rsi-fib-ea/actions/workflows/ci.yml)
 ![Usage](https://img.shields.io/badge/usage-tester%20%2F%20d%C3%A9mo%20uniquement-blue)
@@ -10,7 +10,7 @@
 
 Le trading d'instruments financiers comporte des risques élevés de perte en capital. Les performances passées ou les simulations de backtest ne garantissent aucunement les résultats futurs. Aucune promesse de rentabilité n'est formulée. Cette version doit rester en démo tant que sa compilation, ses backtests hors échantillon et son suivi forward n'ont pas été validés.
 
-**État au 13 août 2026 :** la V4.50 passe 169 tests locaux et compile avec 0 erreur / 0 avertissement dans MetaEditor build 6090. Elle renforce le filtre de tendance H1, permet une politique directionnelle explicite et annule un ordre en attente si la thèse macro devient invalide avant le fill. Le candidat Gold symétrique EMA200 H1 + TP 3R produit 43 positions sur quatre blocs de développement à 100 % de ticks réels, avec +121,18 USD et un PF ajusté de 1,737 sous un scénario de 7 USD/lot. Ces blocs ont servi à choisir les règles, une période reste perdante et le coût n'est pas vérifié auprès du broker : la rentabilité future n'est donc **pas démontrée**. Tous les presets publics restent bloqués par `InpCostModelVerified=false`. Voir le [`rapport d'ablation Gold V4.50`](docs/V450_GOLD_MACRO_ABLATION.md), le [`rapport multi-marchés V4.40`](docs/V440_MULTI_MARKET_RESEARCH.md) et [`docs/MARKET_AND_ACCOUNT_GATE_V3.md`](docs/MARKET_AND_ACCOUNT_GATE_V3.md).
+**État au 13 août 2026 :** la V4.51 passe 172 tests locaux et compile avec 0 erreur / 0 avertissement dans MetaEditor build 6090. Elle conserve les règles Gold V4.50 et corrige le rejet systématique des setups lorsque le volume demandé par le risque dépasse la marge autorisée : le volume est maintenant réduit au plus grand pas broker finançable, puis son risque exact est revérifié et journalisé. Le stress à 2,7 % passe ainsi de 1 à 17 trades sur septembre–novembre, sans relever le plafond de 25 % ni le levier 1:100. Les quatre blocs de développement donnent 46 trades et +1 378,84 USD après le scénario de 7 USD/lot, mais deux blocs restent négatifs, le drawdown atteint 10,45 %, le risque réalisé varie par setup et toutes les fenêtres sont contaminées : la rentabilité future n'est **pas démontrée**. Le profil public reste à 0,25 % et tous les presets publics restent bloqués par `InpCostModelVerified=false`. Voir le [`rapport du sizing marge V4.51`](docs/V451_MARGIN_AWARE_SIZING.md) et le [`rapport d'ablation Gold V4.50`](docs/V450_GOLD_MACRO_ABLATION.md).
 
 ---
 
@@ -22,7 +22,7 @@ L'**RSIFibRetracementEA** est un Expert Advisor (EA) développé en MQL5 pour Me
 3. Le placement d'un **ordre limite** sur un niveau de retracement sous le niveau 0 (`-0.21` par défaut), protégé par un Stop-Loss au niveau d'invalidation (`-0.29` par défaut) et visant une extension à `2.56` (`2.64` en ligne visuelle).
 4. Un cadrage du risque monétaire basé sur un pourcentage de l'Equity (0,25 % par défaut ; plafond logiciel de 5 % réservé au Strategy Tester et déconseillé au-dessus de 0,25 %), estimé par `OrderCalcProfit` avec coûts et slippage conservateurs, puis arrondi vers le bas au pas de volume du symbole.
 
-Les versions V2 à V4.50 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, vrai break de structure, calendrier live ou fichier testeur, géométrie adaptative, break-even, trailing Fibonacci ou en multiples de R, sortie de stagnation et prise partielle. La V4.40 ajoute des plafonds portefeuille par plage de magic numbers, un plancher break-even calculé en devise du compte et des profils distincts Gold/Nasdaq/EURUSD. La V4.50 ajoute une politique achat/vente auditable, une pente EMA H1 optionnelle et la revalidation du filtre macro pendant toute la vie du setup. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et protège la reprise après redémarrage. Une fonctionnalité implémentée n'est jamais présentée comme une preuve de performance.
+Les versions V2 à V4.51 ajoutent des modules **opt-in** : qualification RSI, tendance multi-timeframe, régime ATR, divergence RSI, vrai break de structure, calendrier live ou fichier testeur, géométrie adaptative, break-even, trailing Fibonacci ou en multiples de R, sortie de stagnation et prise partielle. La V4.40 ajoute des plafonds portefeuille par plage de magic numbers, un plancher break-even calculé en devise du compte et des profils distincts Gold/Nasdaq/EURUSD. La V4.50 ajoute une politique achat/vente auditable, une pente EMA H1 optionnelle et la revalidation du filtre macro pendant toute la vie du setup. La V4.51 traite le risque demandé comme un plafond et réduit le volume si la marge autorisée ne finance pas le lot initial. La réconciliation broker bloque les snapshots ambigus dans `STATE_FAULT` et protège la reprise après redémarrage. Une fonctionnalité implémentée n'est jamais présentée comme une preuve de performance.
 
 Le preset conservateur garde tous les modules stratégiques V2 coupés afin de préserver le comportement de référence. Le preset `RSIFibRetracementEA_v2_research.set` les active à faible risque sur un signal **M15** et une tendance **H1**, uniquement comme hypothèse de recherche, jamais comme preuve de rentabilité.
 
@@ -77,7 +77,7 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
 | | `InpCostModelVerified` | `false` | Gate explicite : reste faux tant que le barème du broker n'est pas documenté. C'est ce flag qui bloque les presets actuels. |
 | | `InpEstimatedRoundTurnCostPerLot` | `0.0` | Commission/frais aller-retour vérifiés, en devise du compte et par lot. Zéro est accepté seulement si le broker confirme réellement zéro ; une réserve conservatrice doit sinon être justifiée. |
 | | `InpAdverseEntrySlippageTicks` / `InpAdverseStopSlippageTicks` | `1` / `1` | Slippage adverse ajouté à l'entrée et au stop dans le pire cas de sizing. |
-| | `InpMaxFreeMarginUsagePct` | `25.0` | Refuse l'ordre si `OrderCalcMargin` dépasse cette part de la marge libre. |
+| | `InpMaxFreeMarginUsagePct` | `25.0` | Plafonne le volume au plus grand pas broker dont `OrderCalcMargin` reste sous cette part de la marge libre ; refuse si même le volume minimum ne tient pas. |
 | | `InpMinDaysToContractExpiry` | `7` | Cutoff futures : refuse toute nouvelle exposition, impose une expiration pending antérieure puis aplatit l'exposition gérée au cutoff ; sans effet sur un CFD sans expiry. |
 | **Filtre Session** | `InpUseSessionFilter` | `false` | Filtre d'heure de trading (désactivé par défaut). |
 | | `InpStartHour` | `8` | Heure de début de session (heure broker). |
@@ -153,11 +153,12 @@ Avec les ratios par défaut, la distance entrée→stop ne représente que `0,08
    - Expiration serveur finie prioritaire. Pour un future, la durée pending complète doit finir avant le cutoff d'échéance et GTC seul est refusé.
    - Au cutoff, redémarrer l'EA ne l'abandonne pas : il reste en gestion seulement, annule le pending et tente d'aplatir la position avec contrôle du retcode et retry. Une fermeture cliente reste impossible à garantir si MT5/VPS est hors ligne ; les protections broker demeurent indispensables.
    - Au redémarrage, restauration de la direction, de l'heure, de l'entrée, du SL, du TP et de la géométrie depuis l'ordre broker.
-5. **Filtres et gestion V2–V4.50** :
+5. **Filtres et gestion V2–V4.51** :
    - Les filtres sont évalués séquentiellement au signal, uniquement avec des données clôturées. Chaque croisement reçoit un premier motif de rejet stable dans le résumé `FUNNEL|reason|count`.
    - La politique directionnelle est appliquée au signal, avant le placement, pendant l'attente et juste avant l'envoi au broker. Le filtre H1 est lui aussi recalculé à ces étapes ; un pending est annulé si l'alignement macro disparaît.
    - Le break-even utilise `Bid` pour un achat et `Ask` pour une vente, respecte le tick size, les niveaux `STOPS/FREEZE`, conserve le TP et vérifie le retcode broker.
    - Le sizing n'utilise pas un lot fixe : il recalcule le volume de chaque setup à partir de l'equity, de la distance réelle du stop, des propriétés du symbole, du coût, du slippage et de la marge disponible.
+   - Le risque demandé est un maximum. Si son volume dépasse la marge autorisée, une recherche sur les pas de lot le réduit ; le risque et la marge réellement obtenus sont ensuite recalculés, affichés et journalisés.
    - Le trailing R conserve le stop initial immuable, y compris après redémarrage, et son plancher ne peut pas être inférieur au break-even couvrant les coûts.
    - Gold, Nasdaq et EURUSD peuvent partager un plafond d'exposition, de trades et de perte journalière via leur plage de magic numbers.
    - Après redémarrage, le range est reconstruit depuis le prix limite historique (ou le fill réel en fallback) et le TP ; le SL courant peut donc déjà être à break-even sans corrompre la géométrie originale.

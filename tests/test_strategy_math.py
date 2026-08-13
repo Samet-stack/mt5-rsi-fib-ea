@@ -100,6 +100,33 @@ def calculate_volume(equity, risk_pct, loss_per_lot, step_vol, min_vol, max_vol)
     return vol
 
 
+def margin_capped_volume(requested_volume, min_vol, step_vol,
+                         allowed_margin, margin_for_volume):
+    """Discrete reference for the EA's conservative margin binary search."""
+    if (requested_volume <= 0.0 or min_vol <= 0.0 or step_vol <= 0.0 or
+            allowed_margin <= 0.0):
+        return 0.0, None
+    low = max(1, math.ceil(min_vol / step_vol - 1e-9))
+    high = math.floor(requested_volume / step_vol + 1e-9)
+    best = 0.0
+    best_margin = None
+    while low <= high:
+        mid = low + (high - low) // 2
+        candidate = round(mid * step_vol, 8)
+        try:
+            margin = margin_for_volume(candidate)
+        except (ArithmeticError, ValueError):
+            margin = None
+        if (margin is not None and math.isfinite(margin) and
+                margin > 0.0 and margin <= allowed_margin):
+            best = candidate
+            best_margin = margin
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best, best_margin
+
+
 def min_lot_feasibility(equity, risk_pct, loss_per_lot, min_vol):
     """Returns the exact minimum-lot risk diagnostics used by the EA."""
     if min(equity, risk_pct, loss_per_lot, min_vol) <= 0.0:
@@ -645,6 +672,27 @@ class TestEdgeCasesAndRisk(unittest.TestCase):
         )
         self.assertEqual(vol, 0.009)
         self.assertLessEqual(vol * 1000.0, 9.0)
+
+    def test_margin_cap_finds_largest_affordable_discrete_volume(self):
+        # Non-linear margin: 0.20 lot needs 728, while 0.21 needs 764.82.
+        margin = lambda volume: 3600.0 * volume + 200.0 * volume * volume
+        volume, required = margin_capped_volume(
+            0.30, 0.01, 0.01, 750.0, margin)
+        self.assertEqual(volume, 0.20)
+        self.assertAlmostEqual(required, 728.0)
+        self.assertLessEqual(required, 750.0)
+
+    def test_margin_cap_keeps_risk_volume_when_it_already_fits(self):
+        volume, required = margin_capped_volume(
+            0.17, 0.01, 0.01, 750.0, lambda value: 3500.0 * value)
+        self.assertEqual(volume, 0.17)
+        self.assertAlmostEqual(required, 595.0)
+
+    def test_margin_cap_rejects_when_minimum_volume_does_not_fit(self):
+        volume, required = margin_capped_volume(
+            0.20, 0.01, 0.01, 20.0, lambda value: 3000.0 * value)
+        self.assertEqual(volume, 0.0)
+        self.assertIsNone(required)
 
     def test_restore_buy_geometry(self):
         p0, p1, range_r = restore_geometry(97.9, 97.1, -0.21, -0.29, True)

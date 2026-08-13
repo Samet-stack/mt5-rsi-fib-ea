@@ -153,15 +153,25 @@ class TestMQL5SafetyContracts(unittest.TestCase):
     def test_sizing_includes_verified_cost_slippage_and_margin(self):
         validation_body = function_body("ValidateInputs")
         sizing_body = function_body("CalculatePositionSize")
+        margin_cap_body = function_body("FindMarginCappedVolume")
         self.assertIn("if (!InpCostModelVerified)", validation_body)
         self.assertIn("InpEstimatedRoundTurnCostPerLot < 0.0", validation_body)
         self.assertTrue(re.search(r"InpRiskPercent\s*>\s*(?:0\.25|1\.00|5\.00)", validation_body))
         self.assertIn("InpAdverseEntrySlippageTicks", sizing_body)
         self.assertIn("InpAdverseStopSlippageTicks", sizing_body)
         self.assertIn("InpEstimatedRoundTurnCostPerLot * out_vol", sizing_body)
-        self.assertIn("OrderCalcMargin(calc_type", sizing_body)
         self.assertIn("ACCOUNT_MARGIN_FREE", sizing_body)
         self.assertIn("InpMaxFreeMarginUsagePct", sizing_body)
+        self.assertIn("while (low_steps <= high_steps)", margin_cap_body)
+        self.assertIn("OrderCalcMargin(calc_type", margin_cap_body)
+        self.assertIn("candidate_margin <= allowed_margin", margin_cap_body)
+        self.assertIn("high_steps = mid_steps - 1", margin_cap_body)
+        self.assertIn("capped_volume < min_vol", sizing_body)
+        self.assertIn("FUNNEL_SIZE_MARGIN_CAPPED", sizing_body)
+        self.assertIn("SIZING_RESULT|requested_risk_pct=", sizing_body)
+        self.assertLess(sizing_body.index("FindMarginCappedVolume"),
+                        sizing_body.index("exact_worst_loss"))
+        self.assertNotIn("InpMaxFreeMarginUsagePct = 50", SOURCE)
 
     def test_pending_rechecks_market_conditions_on_every_tick(self):
         body = function_body("ProcessStatePendingOrder")
@@ -463,6 +473,8 @@ class TestMQL5SafetyContracts(unittest.TestCase):
         self.assertIn('return "REJECT_DIRECTION_POLICY"', name_body)
         self.assertIn("FUNNEL_PENDING_CANCEL_MTF", name_body)
         self.assertIn('return "PENDING_CANCEL_MTF"', name_body)
+        self.assertIn("FUNNEL_SIZE_MARGIN_CAPPED", name_body)
+        self.assertIn('return "SIZE_MARGIN_CAPPED"', name_body)
         self.assertIn("EmitFunnelSummary()", function_body("OnDeinit"))
 
     def test_partial_tp_is_risk_based_split_safe_and_retcode_checked(self):
