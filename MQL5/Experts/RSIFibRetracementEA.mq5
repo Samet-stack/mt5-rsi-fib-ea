@@ -240,7 +240,15 @@ input double   InpStructuralMinRiskATR = 0.25;         // Minimum Entry-to-SL di
 input int      InpStructuralTargetBufferTicks = 1;     // TP offset before the known P1 liquidity level
 input double   InpMinNetRewardRisk = 0.0;              // Reject natural net RR below threshold (0 = observe only)
 
-//--- Adaptive Geometry (chart-dependent SL/TP)
+//--- Confidence-Based Risk Scaling
+input group "=== Confidence-Based Risk Scaling ==="
+input bool     InpUseConfidenceSizing   = false;       // Enable Confidence-Based Risk Scaling (Multiplier)
+input double   InpGoldenRiskMultiplier  = 2.0;         // Multiplier for Golden Trades (High Confidence)
+input bool     InpGoldenRequireMTF      = true;        // Golden requires MTF EMA Trend Alignment
+input bool     InpGoldenRequireDiv      = true;        // Golden requires RSI Divergence
+input bool     InpGoldenRequireVol      = true;        // Golden requires Volatility Regime
+
+//--- Adaptive Geometry (ATR-based)
 input group "=== Adaptive Geometry (ATR-based) ==="
 input bool     InpUseAdaptiveSL         = false;       // Adapt SL floor to chart volatility (ATR)
 input double   InpMinSLATRMultiple      = 1.5;         // Minimum SL distance in ATR multiples
@@ -299,6 +307,7 @@ struct SetupStruct
    double          partial_tp_price;
    double          gross_reward_risk;
    double          net_reward_risk;
+   bool            is_high_confidence;
    bool            partial_tp_closed;
    bool            partial_tp_disabled;
    datetime        pending_order_time;
@@ -320,6 +329,7 @@ struct SetupStruct
       partial_tp_price    = 0.0;
       gross_reward_risk   = 0.0;
       net_reward_risk     = 0.0;
+      is_high_confidence  = false;
       partial_tp_closed   = false;
       partial_tp_disabled = false;
       pending_order_time  = 0;
@@ -841,6 +851,31 @@ void ProcessStateIdle()
    m_setup.Reset();
    m_setup.dir = candidate_dir;
    m_setup.signal_time = iTime(_Symbol, m_timeframe, 1);
+   
+   //--- Confidence-Based Risk Evaluation
+   m_setup.is_high_confidence = false;
+   if (InpUseConfidenceSizing)
+   {
+      bool golden = true;
+      
+      if (InpGoldenRequireMTF)
+      {
+         if (!CheckMTFTrendFilter(candidate_dir, true)) golden = false;
+      }
+      
+      if (golden && InpGoldenRequireDiv)
+      {
+         if (!CheckRSIDivergenceFilter(candidate_dir, true)) golden = false;
+      }
+      
+      if (golden && InpGoldenRequireVol)
+      {
+         if (!CheckVolatilityRegimeFilter(true)) golden = false;
+      }
+      
+      m_setup.is_high_confidence = golden;
+   }
+   
    m_state = STATE_WAITING_FOR_ANCHOR;
    RecordFunnel(FUNNEL_SIGNAL_ACCEPTED);
 
@@ -3182,15 +3217,15 @@ bool CheckRSIQualityFilter(ENUM_SIGNAL_DIR dir, double rsi_1, double rsi_2)
    return true;
 }
 
-bool CheckRSIDivergenceFilter(ENUM_SIGNAL_DIR dir)
+bool CheckRSIDivergenceFilter(ENUM_SIGNAL_DIR dir, bool bypass_flag = false)
 {
-   if (!InpUseRSIDivergence)
+   if (!InpUseRSIDivergence && !bypass_flag)
       return true;
 
    int lookback = MathMax(5, MathMin(50, InpRSIDivLookbackBars));
    double rsi_1 = 0.0;
    if (!GetRSI(1, rsi_1))
-      return !InpRequireRSIDivergence;
+      return bypass_flag ? false : !InpRequireRSIDivergence;
 
    if (dir == SIGNAL_BUY)
    {
@@ -3632,9 +3667,9 @@ bool CheckMarketStructureFilter(ENUM_SIGNAL_DIR dir)
    return false;
 }
 
-bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
+bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir, bool bypass_flag = false)
 {
-   if (!InpUseMTFTrendFilter)
+   if (!InpUseMTFTrendFilter && !bypass_flag)
       return true;
 
    if ((dir != SIGNAL_BUY && dir != SIGNAL_SELL) ||
@@ -3701,9 +3736,9 @@ bool CheckMTFTrendFilter(ENUM_SIGNAL_DIR dir)
    return true;
 }
 
-bool CheckVolatilityRegimeFilter()
+bool CheckVolatilityRegimeFilter(bool bypass_flag = false)
 {
-   if (!InpUseVolatilityRegime)
+   if (!InpUseVolatilityRegime && !bypass_flag)
       return true;
 
    if (m_vol_fast_atr_handle == INVALID_HANDLE || m_vol_slow_atr_handle == INVALID_HANDLE)
@@ -4091,6 +4126,13 @@ bool CalculatePositionSize(double entry, double sl, ENUM_ORDER_TYPE order_type, 
       return RejectSizing(FUNNEL_REJECT_SIZE_INVALID);
 
    double risk_money = equity * (InpRiskPercent / 100.0);
+   if (InpUseConfidenceSizing && m_setup.is_high_confidence)
+   {
+      risk_money *= InpGoldenRiskMultiplier;
+      if (InpVerboseLog)
+         PrintFormat("INFO: [RSIFibEA] GOLDEN TRADE detected! Risk scaled by %.2fx (budget: %.2f)", 
+                     InpGoldenRiskMultiplier, risk_money);
+   }
    m_last_sizing_risk_budget = risk_money;
 
    ENUM_ORDER_TYPE calc_type;

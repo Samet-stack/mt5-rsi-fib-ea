@@ -1,0 +1,1282 @@
+[
+  {
+    "name": "g_rsit_mtft_sh8_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 6,
+    "pf": 0.93,
+    "net": -5.3
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 3,
+    "pf": 2.24,
+    "net": 38.92
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 7,
+    "pf": 1.92,
+    "net": 58.6
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 4,
+    "pf": 3.91,
+    "net": 91.01
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh8_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 1,
+    "pf": 0.0,
+    "net": 70.21
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 1,
+    "pf": 0.0,
+    "net": 70.21
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 3,
+    "pf": 6.97,
+    "net": 104.76
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 2,
+    "pf": 0.0,
+    "net": 122.3
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtft_sh10_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 30,
+    "pf": 1.72,
+    "net": 210.53
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 18,
+    "pf": 2.36,
+    "net": 227.54
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 39,
+    "pf": 1.5,
+    "net": 194.77
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 24,
+    "pf": 1.94,
+    "net": 229.75
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh8_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 16,
+    "pf": 3.27,
+    "net": 274.34
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 11,
+    "pf": 5.81,
+    "net": 284.98
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 25,
+    "pf": 2.2,
+    "net": 258.58
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 17,
+    "pf": 3.12,
+    "net": 287.19
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsit_mtff_sh10_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "true",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 10,
+    "pf": 2.63,
+    "net": 99.6
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 5,
+    "pf": 3.18,
+    "net": 68.52
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 19,
+    "pf": 1.95,
+    "net": 142.96
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 10,
+    "pf": 4.28,
+    "net": 178.64
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh8_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 5,
+    "pf": 9.89,
+    "net": 144.47
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 3,
+    "pf": 555.5,
+    "net": 99.81
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 15,
+    "pf": 3.26,
+    "net": 239.71
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 8,
+    "pf": 10.08,
+    "net": 209.93
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtft_sh10_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "true",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 52,
+    "pf": 1.39,
+    "net": 197.48
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 26,
+    "pf": 2.52,
+    "net": 303.41
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 83,
+    "pf": 1.11,
+    "net": 90.21
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 40,
+    "pf": 2.14,
+    "net": 358.38
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh8_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "8",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh16_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 35,
+    "pf": 2.09,
+    "net": 312.22
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh16_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 19,
+    "pf": 8.17,
+    "net": 428.39
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh16_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh16_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "16",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh20_er-0.21_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 67,
+    "pf": 1.23,
+    "net": 151.14
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh20_er-0.21_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "-0.21",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 33,
+    "pf": 4.01,
+    "net": 524.14
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh20_er0.0_td0",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "0",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  },
+  {
+    "name": "g_rsif_mtff_sh10_eh20_er0.0_td2",
+    "params": {
+      "InpCostModelVerified": "true",
+      "InpUseSessionFilter": "true",
+      "InpStartHour": "10",
+      "InpEndHour": "20",
+      "InpTradeDirection": "2",
+      "InpRSIMinBarsInZone": "2",
+      "InpUseRSIQualityFilter": "false",
+      "InpUseMTFTrendFilter": "false",
+      "InpEntryRatio": "0.0",
+      "InpRiskPercent": "1.0",
+      "InpUseConfidenceSizing": "true",
+      "InpGoldenRiskMultiplier": "10.0"
+    },
+    "trades": 0,
+    "pf": 0.0,
+    "net": 0.0
+  }
+]
